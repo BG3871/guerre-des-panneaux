@@ -58,12 +58,14 @@ aside{background:var(--panel);border-left:1px solid var(--line);overflow-y:auto;
 .legend span{display:inline-flex;align-items:center;gap:6px}
 .dot{width:11px;height:11px;border-radius:50%;display:inline-block;border:2px solid var(--panel);box-shadow:0 0 0 1px var(--ink)}
 .rank{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
-.rank li{display:grid;grid-template-columns:22px 1fr auto;align-items:center;gap:8px;font-size:14px}
+.rank li{display:grid;grid-template-columns:22px minmax(0,1fr) auto;align-items:center;gap:8px;font-size:14px}
 .rank li .n{font-family:var(--mono);font-size:12px;color:var(--muted)}
 .rank li .pts{font-family:var(--mono);font-size:13px;font-variant-numeric:tabular-nums}
 .rank li .who{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:flex;align-items:center;gap:6px}
 .rank li .who i{width:10px;height:10px;border-radius:50%;flex:none}
-.rank.cands li .bar{width:90px}
+.rank.candrank li .bar{width:90px}
+.rank li.hint{display:block;padding:0}
+.rank li .who span{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .btn{background:var(--ink);color:var(--panel);border:0;border-radius:8px;padding:10px 14px;font:600 14px var(--body);cursor:pointer;width:100%}
 .btn.ghost{background:transparent;color:var(--ink);border:1.5px solid var(--line)}
 .btn.small{width:auto;padding:6px 10px;font-size:13px}
