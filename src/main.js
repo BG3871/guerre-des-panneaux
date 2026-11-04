@@ -90,7 +90,10 @@ function renderSide(panels) {
     b.onclick = () => { S.sel = k.id; lsSet("gdp-sel", k.id); map.closePopup(); if (S.mode !== "cand") setMode("cand"); else render(); };
     box.append(b);
   }
-  if (st.canWrite) { const a = el("button", "chip add", "+ candidat"); a.onclick = openCandForm; box.append(a); }
+  if (st.canWrite) {
+    const a = el("button", "chip add", st.isAdmin ? "+ candidat" : "+ proposer un candidat");
+    a.onclick = openCandForm; box.append(a);
+  }
 
   // score
   const cov = coverage(panels, st.statuts, S.sel), tot = cov.total;
@@ -116,13 +119,15 @@ function renderSide(panels) {
     const pts = el("span", "pts", x.n + " · " + t + " sect."); pts.title = x.n + " panneaux avec affiche, " + t + " secteurs conquis";
     li.append(el("span", "n", String(i + 1)), w, pts); rc.append(li);
   });
-  if (!rows.length) rc.append(el("li", "hint", "Ajoutez un candidat avec « + candidat » en haut."));
+  if (!rows.length) rc.append(el("li", "hint", st.isAdmin ? "Ajoutez un candidat avec « + candidat » en haut."
+    : "Aucun candidat pour l'instant. Proposez-en un avec « + proposer un candidat » en haut."));
 
   // bandeaux
   const empty = $("emptyBanner");
   empty.textContent = st.kind === "supabase" && !panels.length && !cands.length
     ? "La carte partagée est vide pour l'instant. Ajoutez les candidats suivis, puis signalez les panneaux de votre commune." : "";
   schedulePlayers();
+  scheduleDemandes();
 }
 
 let playersT = null;
@@ -139,9 +144,111 @@ async function renderPlayers() {
   });
   if (!top.length) ul.append(el("li", "hint", "Personne n'a encore marqué de points."));
   $("meLine").textContent = S.store.pseudo
-    ? `Vous jouez sous le pseudo « ${S.store.pseudo} ». 1 point par vérification, 3 par panneau signalé.`
+    ? `Vous jouez sous le pseudo « ${S.store.pseudo} »${S.store.isAdmin ? " (organisateur)" : ""}. 1 point par vérification, 3 par panneau signalé.`
     : "1 point par vérification, 3 points par panneau signalé.";
+  $("emailBtn").hidden = !S.store.lienEmail;
+  $("emailBtn").textContent = S.store.email ? "Compte rattaché à " + S.store.email : "Retrouver mon compte sur un autre appareil";
 }
+
+/* ---------- demandes d'ajout de candidat ---------- */
+let demT = null, demSig = "";
+function scheduleDemandes() { clearTimeout(demT); demT = setTimeout(renderDemandes, 500); }
+async function renderDemandes(force) {
+  const st = S.store;
+  if (!st.canRequest) return;
+  // ne recharge que si la liste des candidats, le compte ou le rôle ont changé
+  const sig = [st.me, st.isAdmin, st.cands.length].join("|");
+  if (!force && sig === demSig) return;
+  let list;
+  try { list = await st.demandes(); } catch (e) { console.error(e); return; }
+  demSig = sig;
+  const ul = $("demList"); ul.replaceChildren();
+  $("demSec").hidden = !list.length && !st.isAdmin;
+  for (const d of list) {
+    const li = el("li"), top = el("div", "top"), dot = el("i");
+    dot.style.background = d.couleur || "var(--gris)";
+    top.append(dot, el("b", null, d.nom), el("span", "n", d.nb_soutiens + (d.nb_soutiens > 1 ? " soutiens" : " soutien")));
+    li.append(top);
+    const meta = el("div", "meta");
+    if (d.parti) meta.append(document.createTextNode(d.parti));
+    if (d.source_url) {
+      if (d.parti) meta.append(document.createTextNode(" · "));
+      const a = el("a", null, "source ↗"); a.href = d.source_url; a.target = "_blank"; a.rel = "noopener nofollow"; meta.append(a);
+    }
+    if (d.statut !== "en_attente") {
+      meta.append(el("span", "st-" + d.statut, (meta.childNodes.length ? " · " : "")
+        + (d.statut === "acceptee" ? "acceptée" : "refusée" + (d.motif ? " : " + d.motif : ""))));
+    }
+    if (meta.childNodes.length) li.append(meta);
+    if (d.statut === "en_attente") {
+      const acts = el("div", "acts");
+      const plus = el("button", "btn small ghost", d.soutenu ? "Soutenue ✓" : "+1 je soutiens");
+      plus.disabled = d.soutenu;
+      plus.onclick = () => supportDemande(d);
+      acts.append(plus);
+      if (st.isAdmin) {
+        const ok = el("button", "btn small", "Accepter"), no = el("button", "btn small ghost", "Refuser");
+        ok.onclick = () => acceptDemande(d, ok);
+        no.onclick = () => {
+          const inp = el("input"); inp.placeholder = "Motif (facultatif)"; inp.maxLength = 200;
+          const conf = el("button", "btn small", "Confirmer le refus");
+          conf.onclick = () => refuseDemande(d, inp.value.trim(), conf);
+          acts.replaceChildren(inp, conf); inp.focus();
+        };
+        acts.append(ok, no);
+      }
+      li.append(acts);
+    }
+    ul.append(li);
+  }
+  if (st.isAdmin && !list.length) ul.append(el("li", "hint", "Aucune demande en attente."));
+  $("demHint").hidden = st.isAdmin;
+}
+async function supportDemande(d) {
+  if (!(await needAccount())) return;
+  try { await S.store.soutenir(d.id); toast("Soutien enregistré pour " + d.nom); renderDemandes(true); }
+  catch (e) { toast(explain(e)); }
+}
+async function acceptDemande(d, btn) {
+  btn.disabled = true;
+  try {
+    const id = await S.store.accepterDemande(d, d.couleur || PALETTE[S.store.cands.length % PALETTE.length]);
+    S.sel = id; lsSet("gdp-sel", id); toast(d.nom + " ajouté à la liste"); render(); renderDemandes(true);
+  } catch (e) { toast(explain(e)); btn.disabled = false; }
+}
+async function refuseDemande(d, motif, btn) {
+  btn.disabled = true;
+  try { await S.store.refuserDemande(d.id, motif); toast("Demande refusée"); renderDemandes(true); }
+  catch (e) { toast(explain(e)); btn.disabled = false; }
+}
+
+/* ---------- compte par e-mail ---------- */
+$("emailBtn").onclick = async () => {
+  const st = S.store, dlg = $("emailDlg"), err = $("eErr"), inp = $("eMail");
+  if (!st.email && !(await needAccount())) return;
+  err.hidden = true; inp.value = st.email || "";
+  $("eHint").textContent = st.email
+    ? "Votre compte est rattaché à cette adresse. Sur un autre appareil, entrez-la ici : vous recevrez un lien de connexion."
+    : "Entrez votre adresse : vous recevrez un lien à ouvrir pour la confirmer. Ensuite, sur un autre appareil, la même adresse vous redonnera ce compte, avec vos points.";
+  dlg.showModal(); inp.focus();
+};
+$("eCancel").onclick = () => $("emailDlg").close();
+$("emailForm").onsubmit = async (e) => {
+  e.preventDefault();
+  const v = $("eMail").value.trim(), err = $("eErr");
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)) { err.textContent = "Adresse e-mail invalide."; err.hidden = false; return; }
+  $("eOk").disabled = true;
+  try {
+    // déjà connecté avec cette adresse : on envoie un lien de connexion pour un autre appareil
+    await S.store.lienEmail(v);
+    $("emailDlg").close(); toast("Lien envoyé à " + v + ". Ouvrez-le depuis l'appareil à connecter.");
+  } catch (x) {
+    err.textContent = /rate|security purposes/i.test(String(x?.message)) ? "Trop de demandes, réessayez dans une minute."
+      : /not found|signups not allowed/i.test(String(x?.message)) ? "Aucun compte n'est rattaché à cette adresse."
+      : explain(x);
+    err.hidden = false;
+  } finally { $("eOk").disabled = false; }
+};
 
 /* ---------- popup d'un panneau ---------- */
 function openPopup(p, marker) {
@@ -303,18 +410,40 @@ $("addForm").addEventListener("submit", async (e) => {
 const PALETTE = ["#2b3cc4", "#c2410c", "#7c3aed", "#0f766e", "#be185d", "#a16207", "#1d4ed8", "#4d7c0f"];
 async function openCandForm() {
   if (!(await needAccount())) return;
+  const admin = S.store.isAdmin;
+  $("cTitle").textContent = admin ? "Ajouter un candidat" : "Proposer un candidat";
+  $("cHint").hidden = admin; $("cSourceF").hidden = admin;
+  $("cOk").textContent = admin ? "Ajouter" : "Envoyer la demande";
   $("candForm").hidden = false; $("addForm").hidden = true;
   $("cCouleur").value = PALETTE[S.store.cands.length % PALETTE.length];
   $("candForm").scrollIntoView({ block: "nearest" }); $("cNom").focus();
 }
-$("cCancel").onclick = () => { $("candForm").hidden = true; $("cErr").hidden = true; $("cNom").value = ""; };
+$("cCancel").onclick = () => { $("candForm").hidden = true; $("cErr").hidden = true; $("cNom").value = ""; $("cParti").value = ""; $("cSource").value = ""; };
 $("candForm").addEventListener("submit", async (e) => {
   e.preventDefault();
   const nom = $("cNom").value.trim(), err = $("cErr");
   if (nom.length < 2) { err.textContent = "Indiquez le nom du candidat."; err.hidden = false; return; }
   if (S.store.cands.some((c) => c.nom.toLowerCase() === nom.toLowerCase())) { err.textContent = "Ce candidat est déjà dans la liste."; err.hidden = false; return; }
-  try { const id = await S.store.addCandidat({ nom, couleur: $("cCouleur").value }); S.sel = id; lsSet("gdp-sel", id); $("cCancel").click(); toast(nom + " ajouté"); render(); }
+  const parti = $("cParti").value.trim(), couleur = $("cCouleur").value;
+  $("cOk").disabled = true;
+  try {
+    if (S.store.isAdmin) {
+      const id = await S.store.addCandidat({ nom, couleur, parti });
+      S.sel = id; lsSet("gdp-sel", id); $("cCancel").click(); toast(nom + " ajouté"); render();
+    } else {
+      const source = $("cSource").value.trim();
+      if (source && !/^https?:\/\/\S+$/.test(source)) { err.textContent = "Le lien doit commencer par https://"; err.hidden = false; return; }
+      const r = await S.store.demanderCandidat({ nom, parti, source_url: source, couleur });
+      if (r === "doublon") {
+        const d = (await S.store.demandes()).find((x) => x.statut === "en_attente" && x.nom.trim().toLowerCase() === nom.toLowerCase());
+        if (d && !d.soutenu) await S.store.soutenir(d.id);
+        toast("Ce candidat est déjà demandé : votre soutien est ajouté.");
+      } else toast("Demande envoyée. Elle apparaît dans « Candidats demandés ».");
+      $("cCancel").click(); renderDemandes(true);
+    }
+  }
   catch (x) { err.textContent = explain(x); err.hidden = false; }
+  finally { $("cOk").disabled = false; }
 });
 
 /* ---------- modes ---------- */

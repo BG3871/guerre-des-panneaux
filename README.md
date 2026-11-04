@@ -7,6 +7,8 @@ La carte collaborative des **panneaux d'affichage libre** (expression libre) en 
 - **Jeu de territoire** : la France est découpée en hexagones dont la taille suit le zoom (60 km → 250 m). Un candidat conquiert un secteur quand son affiche est sur au moins 50 % des panneaux du secteur. La vue **Bataille** colore chaque secteur selon le candidat le mieux affiché.
 - **Points des joueurs** : 1 par vérification (une par panneau, candidat et jour), 3 par panneau signalé. Classement des meilleurs colleurs.
 - Temps réel : ce que les autres relèvent apparaît sans recharger la page.
+- **Liste des candidats tenue par l'organisateur** : les joueurs proposent un candidat (nom, parti, lien source) et soutiennent les demandes des autres (+1) ; l'organisateur accepte ou refuse depuis la section « Candidats demandés ». On ne voit pas qui a demandé ou soutenu un candidat.
+- Compte rattachable à une adresse e-mail, pour le retrouver sur un autre appareil.
 
 ## Architecture
 
@@ -46,7 +48,12 @@ npm test        # tests des règles du jeu
    SUPABASE_URL=https://xxxx.supabase.co SUPABASE_SERVICE_ROLE_KEY=eyJ... npm run import-osm
    ```
    La clé `service_role` se trouve dans **Project Settings > API**. Elle est secrète : ne la mettez ni dans le site ni dans le dépôt.
-5. Pour tester en local avec la vraie base, copiez `.env.example` en `.env.local` et remplissez `VITE_SUPABASE_URL` et `VITE_SUPABASE_ANON_KEY` (clé « anon », publique).
+5. **Devenir organisateur** (seul à pouvoir créer des candidats) : dans l'appli, choisissez un pseudo puis « Retrouver mon compte sur un autre appareil » et confirmez votre adresse e-mail. Ensuite, dans **SQL Editor** :
+   ```sql
+   insert into public.admins select id from auth.users where email = 'votre@adresse.fr';
+   ```
+   Pour que les liens reçus par e-mail ramènent sur le site, renseignez l'adresse du site dans **Authentication > URL Configuration** (Site URL et Redirect URLs).
+6. Pour tester en local avec la vraie base, copiez `.env.example` en `.env.local` et remplissez `VITE_SUPABASE_URL` et `VITE_SUPABASE_ANON_KEY` (clé « anon », publique).
 
 ## Mettre en ligne (GitHub Pages)
 
@@ -58,5 +65,5 @@ npm test        # tests des règles du jeu
 
 - Les tuiles `tile.openstreetmap.org` conviennent à un usage modéré ([politique d'usage](https://operations.osmfoundation.org/policies/tiles/)). Si l'appli décolle, passez à un fournisseur de tuiles (MapTiler, Stadia, etc.) via `VITE_TILE_URL`.
 - Tous les panneaux sont chargés au démarrage : très bien jusqu'à quelques dizaines de milliers. Au-delà, il faudra charger par zone et calculer les secteurs côté serveur.
-- Comptes anonymes : n'importe qui peut jouer, donc tricher. Pistes : captcha Supabase, limite de relevés par heure, modération des candidats.
+- Comptes anonymes : n'importe qui peut jouer, donc tricher. Pistes : captcha Supabase, limite de relevés par heure, vérification par photo (étude en cours).
 - La couche hexagonale est calculée dans le navigateur à chaque zoom.
