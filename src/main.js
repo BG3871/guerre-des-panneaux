@@ -230,7 +230,7 @@ $("emailBtn").onclick = async () => {
   err.hidden = true; inp.value = st.email || "";
   $("eHint").textContent = st.email
     ? "Votre compte est rattaché à cette adresse. Sur un autre appareil, entrez-la ici : vous recevrez un lien de connexion."
-    : "Entrez votre adresse : vous recevrez un lien à ouvrir pour la confirmer. Ensuite, sur un autre appareil, la même adresse vous redonnera ce compte, avec vos points.";
+    : "Entrez votre adresse : vous recevrez un lien à ouvrir pour la confirmer. Ensuite, sur un autre appareil, la même adresse vous redonnera ce compte, avec vos points. Si l'adresse a déjà un compte, le lien vous y reconnectera.";
   dlg.showModal(); inp.focus();
 };
 $("eCancel").onclick = () => $("emailDlg").close();
@@ -241,8 +241,10 @@ $("emailForm").onsubmit = async (e) => {
   $("eOk").disabled = true;
   try {
     // déjà connecté avec cette adresse : on envoie un lien de connexion pour un autre appareil
-    await S.store.lienEmail(v);
-    $("emailDlg").close(); toast("Lien envoyé à " + v + ". Ouvrez-le depuis l'appareil à connecter.");
+    const mode = await S.store.lienEmail(v);
+    $("emailDlg").close();
+    toast(mode === "rattache" ? "Lien envoyé à " + v + ". Ouvrez-le pour confirmer votre adresse."
+      : "Lien de connexion envoyé à " + v + ". Ouvrez-le dans ce navigateur pour retrouver votre compte.");
   } catch (x) {
     err.textContent = /rate|security purposes/i.test(String(x?.message)) ? "Trop de demandes, réessayez dans une minute."
       : /not found|signups not allowed/i.test(String(x?.message)) ? "Aucun compte n'est rattaché à cette adresse."

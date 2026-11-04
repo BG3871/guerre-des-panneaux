@@ -181,8 +181,9 @@ export class SupabaseStore extends BaseStore {
     const { data } = await this.sb.auth.getSession();
     if (data.session?.user?.is_anonymous) {
       const { error } = await this.sb.auth.updateUser({ email }, { emailRedirectTo });
-      if (error) throw error;
-      return "rattache";
+      if (!error) return "rattache";
+      // adresse déjà rattachée à un autre compte : on se connecte à ce compte au lieu de la lier ici
+      if (error.code !== "email_exists" && !/already (been )?registered|already exists/i.test(error.message || "")) throw error;
     }
     const { error } = await this.sb.auth.signInWithOtp({ email, options: { shouldCreateUser: false, emailRedirectTo } });
     if (error) throw error;
