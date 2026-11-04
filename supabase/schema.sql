@@ -83,14 +83,14 @@ alter table public.releves   enable row level security;
 drop policy if exists "lecture" on public.profils;
 create policy "lecture" on public.profils for select using (true);
 drop policy if exists "mon profil" on public.profils;
-create policy "mon profil" on public.profils for insert to authenticated with check (id = auth.uid());
+create policy "mon profil" on public.profils for insert to authenticated with check (id = (select auth.uid()));
 drop policy if exists "maj mon profil" on public.profils;
-create policy "maj mon profil" on public.profils for update to authenticated using (id = auth.uid()) with check (id = auth.uid());
+create policy "maj mon profil" on public.profils for update to authenticated using (id = (select auth.uid())) with check (id = (select auth.uid()));
 
 drop policy if exists "lecture" on public.candidats;
 create policy "lecture" on public.candidats for select using (true);
 drop policy if exists "ajout" on public.candidats;
-create policy "ajout" on public.candidats for insert to authenticated with check (cree_par = auth.uid());
+create policy "ajout" on public.candidats for insert to authenticated with check (cree_par = (select auth.uid()));
 
 drop policy if exists "lecture" on public.panneaux;
 create policy "lecture" on public.panneaux for select using (true);
@@ -98,14 +98,14 @@ drop policy if exists "ajout" on public.panneaux;
 create policy "ajout" on public.panneaux for insert to authenticated
   with check (cree_par = auth.uid() and source = 'contrib' and osm_id is null);
 drop policy if exists "suppression" on public.panneaux;
-create policy "suppression" on public.panneaux for delete to authenticated using (cree_par = auth.uid());
+create policy "suppression" on public.panneaux for delete to authenticated using (cree_par = (select auth.uid()));
 
 drop policy if exists "lecture" on public.releves;
 create policy "lecture" on public.releves for select using (true);
 drop policy if exists "ajout" on public.releves;
-create policy "ajout" on public.releves for insert to authenticated with check (auteur = auth.uid());
+create policy "ajout" on public.releves for insert to authenticated with check (auteur = (select auth.uid()));
 drop policy if exists "correction" on public.releves;
-create policy "correction" on public.releves for update to authenticated using (auteur = auth.uid()) with check (auteur = auth.uid());
+create policy "correction" on public.releves for update to authenticated using (auteur = (select auth.uid())) with check (auteur = (select auth.uid()));
 
 grant select on public.statut_actuel, public.classement to anon, authenticated;
 

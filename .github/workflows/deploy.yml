@@ -20,14 +20,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
+      # La configuration Supabase (publique) est dans .env.production
       - run: npm run build
-        env:
-          # Variables du dépôt (Settings > Secrets and variables > Actions > Variables).
-          # Vides : le site est publié en mode local.
-          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
-          VITE_TILE_URL: ${{ vars.VITE_TILE_URL }}
-          VITE_TILE_ATTRIBUTION: ${{ vars.VITE_TILE_ATTRIBUTION }}
       - if: github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@v3
         with:
