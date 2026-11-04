@@ -88,6 +88,12 @@
         </form>
       </section>
 
+      <section id="valSec" hidden>
+        <p class="label">Photos à valider</p>
+        <p class="hint" style="margin-bottom:8px">Le nom lu sur l'affiche n'est pas sûr : à vous de dire si c'est bien ce candidat. 3 avis identiques tranchent, 1 point par avis conforme.</p>
+        <ul class="val" id="valList"></ul>
+      </section>
+
       <section id="demSec" hidden>
         <p class="label">Candidats demandés</p>
         <ul class="dem" id="demList"></ul>
@@ -108,12 +114,35 @@
           <li>Un candidat conquiert un secteur quand son affiche est sur au moins la moitié des panneaux du secteur.</li>
           <li>En vue « Bataille », chaque secteur prend la couleur du candidat le mieux affiché.</li>
           <li>Chaque vérification rapporte 1 point (une par panneau, candidat et jour), chaque panneau signalé 3 points.</li>
+          <li>Une vérification prouvée par une photo où le nom du candidat est lu rapporte 2 points de plus et affiche le badge « photo ». Les photos douteuses sont validées par les autres joueurs.</li>
           <li>Un relevé de plus de 14 jours apparaît pâli : une affiche peut avoir été recouverte.</li>
         </ul>
       </section>
     </aside>
   </main>
 </div>
+
+<dialog id="photoDlg" class="photo">
+  <form method="dialog" id="photoForm" novalidate>
+    <h3 id="phTitle">Vérifier par photo</h3>
+    <p class="hint" id="phHint">Cadrez l'affiche bien en face, nom du candidat lisible. Restez près du panneau.</p>
+    <div class="cam">
+      <video id="phVideo" playsinline muted hidden></video>
+      <img id="phImg" alt="Photo prise" hidden>
+      <p class="hint" id="phCamMsg">Ouverture de l'appareil photo…</p>
+    </div>
+    <p class="hint mono" id="phGeo"></p>
+    <p class="hint" id="phRes" hidden></p>
+    <p class="err" id="phErr" hidden></p>
+    <input type="file" id="phFile" accept="image/jpeg,image/png,image/webp" capture="environment" hidden>
+    <div class="row">
+      <button type="button" class="btn ghost" id="phCancel">Annuler</button>
+      <button type="button" class="btn ghost" id="phRetake" hidden>Reprendre</button>
+      <button type="button" class="btn" id="phShoot" disabled>Prendre la photo</button>
+      <button type="button" class="btn" id="phSend" hidden>Envoyer</button>
+    </div>
+  </form>
+</dialog>
 
 <dialog id="pseudoDlg">
   <form method="dialog" id="pseudoForm" novalidate>

@@ -146,3 +146,14 @@ dialog h3{margin:0;font-size:17px}
 .dem .acts input{flex:1 1 140px;min-width:0;font:inherit;font-size:13px;padding:5px 8px;border:1.5px solid var(--line);border-radius:6px;background:transparent;color:var(--ink)}
 .dem .st-acceptee{color:var(--vert)}
 .dem .st-refusee{color:var(--rouge)}
+dialog.photo{width:min(94vw,440px)}
+.cam{position:relative;background:#000;border-radius:8px;overflow:hidden;aspect-ratio:3/4;max-height:58vh;display:flex;align-items:center;justify-content:center}
+.cam video,.cam img{width:100%;height:100%;object-fit:cover;display:block}
+.cam .hint{color:#cfd3dc;padding:12px;text-align:center}
+.val{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px}
+.val li{border:1.5px solid var(--line);border-radius:8px;overflow:hidden;font-size:14px}
+.val img{width:100%;max-height:320px;object-fit:contain;display:block;background:#000}
+.val .txt{padding:8px 10px;display:flex;flex-direction:column;gap:4px}
+.val .acts{display:flex;gap:6px;padding:0 10px 10px;flex-wrap:wrap}
+.val .acts .btn{flex:1 1 auto}
+.pp .badge{display:inline-block;font-size:11px;font-weight:700;border-radius:4px;padding:0 5px;margin-left:4px;background:var(--vert);color:#fff;vertical-align:1px}

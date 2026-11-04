@@ -9,6 +9,7 @@ La carte collaborative des **panneaux d'affichage libre** (expression libre) en 
 - Temps réel : ce que les autres relèvent apparaît sans recharger la page.
 - **Liste des candidats tenue par l'organisateur** : les joueurs proposent un candidat (nom, parti, lien source) et soutiennent les demandes des autres (+1) ; l'organisateur accepte ou refuse depuis la section « Candidats demandés ». On ne voit pas qui a demandé ou soutenu un candidat.
 - Compte rattachable à une adresse e-mail, pour le retrouver sur un autre appareil.
+- **Vérification par photo** : depuis la fiche d'un panneau, « Prouver par une photo ». Le texte de l'affiche est lu dans le téléphone (Tesseract.js, rien n'est envoyé à un service d'IA) et comparé au nom du candidat. Nom reconnu à 80 % ou plus et joueur à moins de 50 m : relevé « vérifié » (+2 points, badge « photo »). Sinon, la photo part dans « Photos à valider », où 3 avis identiques d'autres joueurs tranchent. Une photo vérifiée sur dix y passe aussi, au hasard. Le statut est décidé par la base, pas par le téléphone.
 
 ## Architecture
 
@@ -22,7 +23,8 @@ La carte collaborative des **panneaux d'affichage libre** (expression libre) en 
 Sans Supabase configuré, l'appli tourne en **mode local** : données d'exemple fictives, et vos ajouts restent dans votre navigateur. Pratique pour essayer.
 
 ```
-src/game.js            règles du jeu (secteurs, conquête, points) — testées dans tests/
+src/game.js            règles du jeu (secteurs, conquête, points, lecture des noms) — testées dans tests/
+src/ocr.js             lecture du texte des affiches (Tesseract.js, chargé à la première photo)
 src/main.js            interface et carte
 src/store/supabase.js  carte partagée          src/store/local.js  mode local
 supabase/schema.sql    tables, vues, droits, temps réel

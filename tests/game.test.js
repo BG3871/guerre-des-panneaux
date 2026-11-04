@@ -81,3 +81,34 @@ describe("doublons", () => {
     expect(nearby(ps, [48.858, 2.3522])).toBeNull();
   });
 });
+
+import { normTexte, scoreCandidat, classerCandidats, ciblesCandidat } from "../src/game.js";
+
+describe("lecture des affiches", () => {
+  const dupont = { id: "d", nom: "Jean-Marie Dupont", alias: ["Dupont 2027"] };
+  const martin = { id: "m", nom: "Élise Martin" };
+  it("normalise accents, ponctuation et chiffres-lettres", () => {
+    expect(normTexte("Élise  MARTIN !")).toBe("ELISE MARTIN");
+    expect(normTexte("DUP0NT")).toBe("DUPONT");
+  });
+  it("cible le nom complet, le nom de famille et les alias", () => {
+    expect(ciblesCandidat(dupont)).toEqual(["JEAN MARIE DUPONT", "DUPONT"]);
+  });
+  it("reconnaît le nom de famille au milieu d'un slogan", () => {
+    expect(scoreCandidat("Avec DUPONT, la France debout", dupont)).toBe(1);
+  });
+  it("tolère les erreurs d'OCR courantes", () => {
+    expect(scoreCandidat("VOTEZ DUP0NT", dupont)).toBe(1);
+    expect(scoreCandidat("VOTEZ DUPQNT", dupont)).toBeGreaterThanOrEqual(0.8);
+    expect(scoreCandidat("DU PONT président", dupont)).toBe(1);
+  });
+  it("ne reconnaît pas un autre nom", () => {
+    expect(scoreCandidat("Élise Martin présidente", dupont)).toBeLessThan(0.5);
+    expect(scoreCandidat("", dupont)).toBe(0);
+  });
+  it("classe les candidats du plus au moins probable", () => {
+    const r = classerCandidats("ELISE MARTIN 2027", [dupont, martin]);
+    expect(r[0].cand.id).toBe("m");
+    expect(r[0].score).toBe(1);
+  });
+});
