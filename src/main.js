@@ -17,7 +17,7 @@ const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
 const S = { store: null, sel: lsGet("gdp-sel"), mode: lsGet("gdp-mode") === "all" ? "all" : "cand", placing: false, pending: null, here: null };
 
 /* ---------- carte ---------- */
-const map = L.map("map", { preferCanvas: true, zoomSnap: 0.5, minZoom: 5, maxZoom: 19 }).setView([46.6, 2.4], 5.5);
+const map = L.map("map", { preferCanvas: true, zoomSnap: 1, minZoom: 5, maxZoom: 19 }).setView([46.6, 2.4], document.getElementById("map").clientWidth < 600 ? 5 : 6);
 map.setMaxBounds([[38, -12], [54, 17]]);
 map.attributionControl.setPrefix(false);
 L.tileLayer(import.meta.env.VITE_TILE_URL || "https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -48,8 +48,9 @@ function render() {
     if (!view.intersects(L.latLngBounds(poly))) continue;
     const sh = shares(list, cands, statuts);
     let fill, op;
-    if (S.mode === "cand") {
-      const v = S.sel ? sh[S.sel] : 0, won = v >= 0.5;
+    if (S.mode === "cand" && !S.sel) { fill = Gr; op = 0.12; }
+    else if (S.mode === "cand") {
+      const v = sh[S.sel], won = v >= 0.5;
       fill = won ? G : R; op = won ? 0.18 + 0.3 * v : 0.1 + 0.2 * (1 - v);
     } else {
       const lead = leader(sh, cands);
@@ -350,7 +351,9 @@ setMode(S.mode);
   st.onChange(render);
   render();
   const panels = st.panelList();
+  // Panneaux regroupés sur une petite zone : on zoome dessus. Sinon, vue de toute la France.
   if (st.kind === "supabase" && panels.length && panels.length < 2000) {
-    try { map.fitBounds(L.latLngBounds(panels.map((p) => [p.lat, p.lng])).pad(0.2), { maxZoom: 14 }); } catch {}
+    const bb = L.latLngBounds(panels.map((p) => [p.lat, p.lng]));
+    if (bb.getNorth() - bb.getSouth() < 4) { try { map.fitBounds(bb.pad(0.2), { maxZoom: 14 }); } catch {} }
   }
 })();
