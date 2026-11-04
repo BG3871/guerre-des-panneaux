@@ -226,10 +226,12 @@ async function refuseDemande(d, motif, btn) {
 /* ---------- compte par e-mail ---------- */
 $("emailBtn").onclick = async () => {
   const st = S.store, dlg = $("emailDlg"), err = $("eErr"), inp = $("eMail");
-  if (!st.email && !(await needAccount())) return;
+  // sans compte sur cet appareil, on se connecte directement à un compte existant (pas de pseudo à choisir)
   err.hidden = true; inp.value = st.email || "";
   $("eHint").textContent = st.email
     ? "Votre compte est rattaché à cette adresse. Sur un autre appareil, entrez-la ici : vous recevrez un lien de connexion."
+    : !st.signedIn
+    ? "Entrez l'adresse e-mail de votre compte : vous recevrez un lien de connexion à ouvrir dans ce navigateur."
     : "Entrez votre adresse : vous recevrez un lien à ouvrir pour la confirmer. Ensuite, sur un autre appareil, la même adresse vous redonnera ce compte, avec vos points. Si l'adresse a déjà un compte, le lien vous y reconnectera.";
   dlg.showModal(); inp.focus();
 };
