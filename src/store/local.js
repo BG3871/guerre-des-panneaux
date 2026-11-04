@@ -13,6 +13,8 @@ export class LocalStore extends BaseStore {
     super();
     this.kind = "local";
     this.canWrite = true;
+    this.isAdmin = true;      // en local, on gère soi-même sa liste de candidats
+    this.canRequest = false;
   }
 
   async init() {

@@ -77,18 +77,28 @@
           <div class="row"><button type="button" class="btn ghost" id="fCancel">Annuler</button><button type="submit" class="btn" id="fSave">Enregistrer</button></div>
         </form>
         <form class="sheet" id="candForm" hidden novalidate>
-          <h3>Ajouter un candidat</h3>
+          <h3 id="cTitle">Ajouter un candidat</h3>
+          <p class="hint" id="cHint" hidden>La liste des candidats est tenue par l'organisateur. Votre demande lui sera transmise ; les autres joueurs pourront la soutenir.</p>
           <label class="field">Nom<input id="cNom" maxlength="60" placeholder="Prénom Nom"></label>
+          <label class="field">Parti ou mouvement<input id="cParti" maxlength="60" placeholder="Facultatif"></label>
+          <label class="field" id="cSourceF">Lien vers une source<input id="cSource" type="url" maxlength="300" placeholder="https://… (déclaration de candidature, site officiel)" inputmode="url"></label>
           <label class="field">Couleur<input id="cCouleur" type="color" value="#2b3cc4"></label>
           <p class="err" id="cErr" hidden></p>
-          <div class="row"><button type="button" class="btn ghost" id="cCancel">Annuler</button><button type="submit" class="btn">Ajouter</button></div>
+          <div class="row"><button type="button" class="btn ghost" id="cCancel">Annuler</button><button type="submit" class="btn" id="cOk">Ajouter</button></div>
         </form>
+      </section>
+
+      <section id="demSec" hidden>
+        <p class="label">Candidats demandés</p>
+        <ul class="dem" id="demList"></ul>
+        <p class="hint" style="margin-top:6px" id="demHint">Il manque un candidat ? Proposez-le avec « + proposer un candidat » en haut.</p>
       </section>
 
       <section>
         <p class="label">Meilleurs colleurs</p>
         <ul class="rank" id="rankPlayers"></ul>
         <p class="hint" style="margin-top:6px" id="meLine">1 point par vérification, 3 points par panneau signalé.</p>
+        <button class="btn small ghost" id="emailBtn" style="margin-top:8px" hidden>Retrouver mon compte sur un autre appareil</button>
       </section>
 
       <section>
@@ -112,6 +122,15 @@
     <label class="field">Pseudo<input id="pNom" maxlength="30" minlength="2" autocomplete="nickname" placeholder="Colleur du 11e"></label>
     <p class="err" id="pErr" hidden></p>
     <div class="row"><button type="button" class="btn ghost" id="pCancel">Annuler</button><button type="submit" class="btn" id="pOk">Valider</button></div>
+  </form>
+</dialog>
+<dialog id="emailDlg">
+  <form method="dialog" id="emailForm" novalidate>
+    <h3>Garder mon compte</h3>
+    <p class="hint" id="eHint"></p>
+    <label class="field">Adresse e-mail<input id="eMail" type="email" autocomplete="email" maxlength="200" placeholder="vous@exemple.fr"></label>
+    <p class="err" id="eErr" hidden></p>
+    <div class="row"><button type="button" class="btn ghost" id="eCancel">Fermer</button><button type="submit" class="btn" id="eOk">Recevoir le lien</button></div>
   </form>
 </dialog>
 <div class="toast" id="toast" role="status" hidden></div>

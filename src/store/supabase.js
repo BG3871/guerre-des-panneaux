@@ -8,6 +8,7 @@ const ts = (v) => (v ? Date.parse(v) : 0);
 const toCand = (r) => ({ id: r.id, nom: r.nom, couleur: r.couleur, by: r.cree_par, at: ts(r.cree_le) });
 const toPanel = (r) => ({ id: r.id, lat: r.lat, lng: r.lng, lieu: r.lieu || "", commune: r.commune || "",
   source: r.source, by: r.cree_par, at: ts(r.cree_le) });
+const DEM_COLS = "id,nom,parti,source_url,couleur,statut,motif,nb_soutiens,cree_le,traite_le";
 const toStatut = (r) => ({ p: r.panneau_id, c: r.candidat_id, ok: r.present, by: r.auteur, at: ts(r.cree_le) });
 
 export class SupabaseStore extends BaseStore {
@@ -16,18 +17,36 @@ export class SupabaseStore extends BaseStore {
     this.kind = "supabase";
     this.isDemo = false;
     this.canWrite = true;
+    this.canRequest = true;   // les joueurs proposent des candidats, les administrateurs les créent
+    this.isAdmin = false;
+    this.email = null;
     this.sb = createClient(url, key, { auth: { persistSession: true, autoRefreshToken: true } });
   }
 
   async init() {
     const { data } = await this.sb.auth.getSession();
-    if (data.session) {
-      this.me = data.session.user.id;
-      const { data: prof } = await this.sb.from("profils").select("pseudo").eq("id", this.me).maybeSingle();
-      this.pseudo = prof?.pseudo || null;
-    }
+    await this._session(data.session);
+    // retour d'un lien de connexion reçu par e-mail, ou e-mail confirmé
+    this.sb.auth.onAuthStateChange((ev, session) => {
+      if (session?.user?.id !== this.me || (session?.user?.email || null) !== this.email) {
+        setTimeout(() => this._session(session).then(() => this.changed()), 0);
+      }
+    });
     await this._loadAll();
     this._listen();
+  }
+
+  async _session(session) {
+    this.me = session?.user?.id || null;
+    this.email = session?.user?.email || null;
+    this.pseudo = null; this.isAdmin = false;
+    if (!this.me) return;
+    const [{ data: prof }, { data: adm }] = await Promise.all([
+      this.sb.from("profils").select("pseudo").eq("id", this.me).maybeSingle(),
+      this.sb.from("admins").select("user_id").eq("user_id", this.me).maybeSingle(),
+    ]);
+    this.pseudo = prof?.pseudo || null;
+    this.isAdmin = !!adm;
   }
 
   async _all(table, cols, map) {
@@ -81,8 +100,8 @@ export class SupabaseStore extends BaseStore {
     this.pseudo = pseudo;
   }
 
-  async addCandidat({ nom, couleur }) {
-    const { data, error } = await this.sb.from("candidats").insert({ nom, couleur }).select().single();
+  async addCandidat({ nom, couleur, parti }) {
+    const { data, error } = await this.sb.from("candidats").insert({ nom, couleur, parti: parti || null }).select().single();
     if (error) throw error;
     this.putCand(toCand(data)); this.changed();
     return data.id;
@@ -111,5 +130,60 @@ export class SupabaseStore extends BaseStore {
     const { data, error } = await this.sb.from("classement").select("id,pseudo,points").order("points", { ascending: false }).limit(limit);
     if (error) throw error;
     return data.map((r) => ({ id: r.id, pseudo: r.pseudo || "Quelqu'un", points: r.points }));
+  }
+
+  /* ---------- demandes d'ajout de candidat ---------- */
+  /** Demandes en attente, plus celles que j'ai soutenues (pour voir leur réponse). */
+  async demandes() {
+    const [{ data, error }, mine] = await Promise.all([
+      this.sb.from("demandes_candidat").select(DEM_COLS).order("cree_le", { ascending: false }).limit(300),
+      this.me ? this.sb.from("soutiens_demande").select("demande_id") : { data: [] },
+    ]);
+    if (error) throw error;
+    const set = new Set((mine.data || []).map((r) => r.demande_id));
+    return data.map((r) => ({ ...r, soutenu: set.has(r.id) }))
+      .filter((r) => r.statut === "en_attente" || r.soutenu)
+      .sort((a, b) => (b.statut === "en_attente") - (a.statut === "en_attente")
+        || b.nb_soutiens - a.nb_soutiens || Date.parse(b.traite_le || b.cree_le) - Date.parse(a.traite_le || a.cree_le));
+  }
+  /** Renvoie "ok", ou "doublon" si une demande du même nom attend déjà. */
+  async demanderCandidat({ nom, parti, source_url, couleur }) {
+    const { error } = await this.sb.from("demandes_candidat")
+      .insert({ nom, parti: parti || null, source_url: source_url || null, couleur: couleur || null });
+    if (error?.code === "23505") return "doublon";
+    if (error) throw error;
+    return "ok";
+  }
+  async soutenir(id) {
+    const { error } = await this.sb.from("soutiens_demande").insert({ demande_id: id });
+    if (error && error.code !== "23505") throw error;
+  }
+  async accepterDemande(d, couleur) {
+    const id = this.cands.find((c) => c.nom.toLowerCase() === d.nom.toLowerCase())?.id
+      || await this.addCandidat({ nom: d.nom, couleur, parti: d.parti });
+    const { error } = await this.sb.from("demandes_candidat")
+      .update({ statut: "acceptee", traite_le: new Date().toISOString() }).eq("id", d.id);
+    if (error) throw error;
+    return id;
+  }
+  async refuserDemande(id, motif) {
+    const { error } = await this.sb.from("demandes_candidat")
+      .update({ statut: "refusee", motif: motif || null, traite_le: new Date().toISOString() }).eq("id", id);
+    if (error) throw error;
+  }
+
+  /* ---------- compte par e-mail (pour garder son compte sur plusieurs appareils) ---------- */
+  /** Compte anonyme : rattache l'adresse (lien de confirmation). Sinon : envoie un lien de connexion. */
+  async lienEmail(email) {
+    const emailRedirectTo = location.origin + location.pathname;
+    const { data } = await this.sb.auth.getSession();
+    if (data.session?.user?.is_anonymous) {
+      const { error } = await this.sb.auth.updateUser({ email }, { emailRedirectTo });
+      if (error) throw error;
+      return "rattache";
+    }
+    const { error } = await this.sb.auth.signInWithOtp({ email, options: { shouldCreateUser: false, emailRedirectTo } });
+    if (error) throw error;
+    return "connexion";
   }
 }
