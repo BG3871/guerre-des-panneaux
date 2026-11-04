@@ -125,6 +125,10 @@ body{margin:0}
 .locate{position:absolute;left:calc(10px + env(safe-area-inset-left,0px));top:86px;z-index:500;width:36px;height:36px;border-radius:8px;border:1px solid var(--line);
   background:var(--panel);color:var(--ink);display:grid;place-items:center;cursor:pointer;box-shadow:var(--shadow);padding:0}
 .locate.on{color:var(--accent)}
+.shoot{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(22px + env(safe-area-inset-bottom,0px));z-index:500;
+  background:var(--accent);color:#fff;border:0;border-radius:999px;padding:13px 22px;font:700 16px var(--body);cursor:pointer;
+  box-shadow:0 4px 16px rgba(10,14,24,.35);white-space:nowrap}
+.shoot:active{transform:translateX(-50%) scale(.97)}
 .locate.busy svg{animation:pulse 1s infinite alternate}
 @keyframes pulse{from{opacity:1}to{opacity:.3}}
 .warn{color:var(--ink);background:color-mix(in srgb,#e0a100 22%,transparent);border-radius:6px;padding:6px 8px;font-size:12.5px;margin:0}
