@@ -478,6 +478,8 @@ setMode(S.mode);
   }
   $("loading").hidden = true;
   const st = S.store;
+  $("shootBtn").hidden = !st.canPhoto;
+  $("shootBtn").onclick = () => openPhoto();
   if (st.kind === "local") {
     const upd = () => {
       $("localBanner").hidden = false;
@@ -500,14 +502,21 @@ setMode(S.mode);
 })();
 
 /* ---------- vérification par photo ---------- */
-const PH = { p: null, c: null, stream: null, geo: null, watch: null, blob: null, source: "camera", texte: "", score: 0, busy: false };
+const PH = { libre: false, ll: null, p: null, c: null, stream: null, geo: null, watch: null, blob: null, source: "camera", texte: "", score: 0, busy: false };
 let ocrMod = null;
 const ocr = () => (ocrMod ||= import("./ocr.js"));
 
-async function openPhoto(p, c) {
+/**
+ * Sans panneau ni candidat (bouton principal) : le panneau est le plus proche de la position GPS
+ * (créé s'il n'y en a aucun à moins de DISTANCE_PHOTO) et le candidat est celui que lit l'OCR.
+ */
+async function openPhoto(p = null, c = null) {
   if (!(await needAccount())) return;
-  Object.assign(PH, { p, c, geo: null, blob: null, source: "camera", texte: "", score: 0, busy: false });
-  $("phTitle").textContent = "Affiche de " + c.nom;
+  Object.assign(PH, { libre: !p, ll: null, p, c, geo: null, blob: null, source: "camera", texte: "", score: 0, busy: false });
+  $("phTitle").textContent = p ? "Affiche de " + c.nom : "Photographier une affiche";
+  $("phHint").textContent = p ? "Cadrez l'affiche bien en face, nom du candidat lisible. Restez près du panneau."
+    : "Placez-vous devant le panneau et cadrez une affiche, nom du candidat lisible. Le panneau et le candidat sont trouvés automatiquement.";
+  $("phCandF").hidden = true;
   $("phErr").hidden = true; $("phRes").hidden = true; $("phImg").hidden = true;
   $("phShoot").hidden = false; $("phShoot").disabled = true; $("phSend").hidden = true; $("phRetake").hidden = true;
   $("phGeo").textContent = "Recherche de votre position…";
@@ -517,6 +526,16 @@ async function openPhoto(p, c) {
   if (navigator.geolocation) {
     PH.watch = navigator.geolocation.watchPosition((pos) => {
       const ll = [pos.coords.latitude, pos.coords.longitude];
+      PH.ll = ll;
+      if (PH.libre) {
+        PH.p = nearby(S.store.panelList(), ll, DISTANCE_PHOTO);
+        PH.geo = { d: PH.p ? distance(ll, [PH.p.lat, PH.p.lng]) : 0, acc: pos.coords.accuracy };
+        $("phGeo").textContent = PH.p
+          ? "📍 Panneau : " + (PH.p.lieu || "panneau d'affichage libre") + (PH.p.commune ? ", " + PH.p.commune : "") + " (à " + Math.round(PH.geo.d) + " m)."
+          : pos.coords.accuracy <= DISTANCE_PHOTO ? "📍 Aucun panneau connu ici : il sera ajouté à votre position (+3 points)."
+          : "⚠ Position imprécise (" + Math.round(pos.coords.accuracy) + " m). Attendez quelques secondes ou sortez à découvert.";
+        return;
+      }
       PH.geo = { d: distance(ll, [p.lat, p.lng]), acc: pos.coords.accuracy };
       const ok = PH.geo.d <= DISTANCE_PHOTO;
       $("phGeo").textContent = (ok ? "📍 " : "⚠ ") + "Vous êtes à " + Math.round(PH.geo.d) + " m du panneau (précision " + Math.round(PH.geo.acc) + " m)"
@@ -568,6 +587,7 @@ $("phFile").onchange = async () => {
   URL.revokeObjectURL(img.src);
 };
 $("phRetake").onclick = () => {
+  $("phCandF").hidden = true;
   $("phImg").hidden = true; $("phRes").hidden = true; $("phErr").hidden = true;
   $("phSend").hidden = true; $("phRetake").hidden = true; $("phShoot").hidden = false;
   if (PH.source === "camera") $("phVideo").hidden = false; else $("phCamMsg").hidden = false;
@@ -586,6 +606,7 @@ async function analyse(cv) {
     res.textContent = "La lecture automatique n'a pas pu se lancer (connexion ?). Vous pouvez envoyer la photo : elle sera validée par les autres joueurs.";
   }
   const cands = S.store.cands, ranked = classerCandidats(PH.texte, cands);
+  if (PH.libre) { choixCandidat(ranked); $("phSend").hidden = false; return; }
   PH.score = ranked.find((r) => r.cand.id === PH.c.id)?.score || 0;
   const autre = ranked[0] && ranked[0].cand.id !== PH.c.id && ranked[0].score >= SEUIL_PHOTO && ranked[0].score > PH.score ? ranked[0].cand : null;
   if (PH.texte) {
@@ -600,18 +621,58 @@ async function analyse(cv) {
   }
   $("phSend").hidden = false;
 }
+/** Mode libre : le candidat le mieux lu est proposé, le joueur peut le corriger. */
+function choixCandidat(ranked) {
+  PH.ranked = ranked;
+  const best = ranked[0] && ranked[0].score >= 0.5 ? ranked[0] : null, sel = $("phCand");
+  sel.replaceChildren(el("option", null, "— choisir —"));
+  sel.firstChild.value = "";
+  for (const r of ranked) { const o = el("option", null, r.cand.nom); o.value = r.cand.id; sel.append(o); }
+  sel.value = best ? best.cand.id : "";
+  $("phCandF").hidden = false;
+  majCandidat();
+}
+function majCandidat() {
+  const id = $("phCand").value, r = PH.ranked?.find((x) => x.cand.id === id), res = $("phRes");
+  PH.c = r?.cand || null; PH.score = r?.score || 0;
+  const lu = PH.texte ? " Texte lu : « " + PH.texte.slice(0, 120) + (PH.texte.length > 120 ? "…" : "") + " »" : "";
+  const pct = Math.round(PH.score * 100) + " %";
+  res.textContent = !PH.c ? (PH.texte ? "Candidat non reconnu. Choisissez-le ci-dessous, ou reprenez la photo de plus près." : "Aucun texte lu. Reprenez la photo en vous approchant, ou choisissez le candidat.") + lu
+    : PH.score >= SEUIL_PHOTO ? "✓ Affiche de " + PH.c.nom + " reconnue (" + pct + ")." + lu
+    : PH.score >= 0.5 ? "Affiche de " + PH.c.nom + " peut-être (" + pct + ") : la photo sera validée par les autres joueurs." + lu
+    : "Le nom de " + PH.c.nom + " n'a pas été lu (" + pct + ") : la photo sera validée par les autres joueurs." + lu;
+}
+$("phCand").onchange = majCandidat;
+async function communeDe(ll) {
+  try {
+    const r = await fetch(`https://geo.api.gouv.fr/communes?lat=${ll[0]}&lon=${ll[1]}&fields=nom&format=json`);
+    return (await r.json())[0]?.nom || "";
+  } catch { return ""; }
+}
 $("phSend").onclick = async () => {
   if (PH.busy || !PH.blob) return;
+  if (PH.libre) {
+    if (!PH.c) { showPhErr("Choisissez le candidat de l'affiche."); return; }
+    if (!PH.ll) { showPhErr("Position inconnue : autorisez la localisation pour retrouver le panneau."); return; }
+    if (!PH.p && PH.geo?.acc > DISTANCE_PHOTO) { showPhErr("Position trop imprécise pour placer le panneau. Réessayez dans quelques secondes."); return; }
+  }
   PH.busy = true; $("phSend").disabled = true; $("phSend").textContent = "Envoi…";
   try {
+    let nouveau = false;
+    if (PH.libre && !PH.p) {
+      const ll = PH.ll, id = await S.store.addPanel({ lat: +ll[0].toFixed(6), lng: +ll[1].toFixed(6), lieu: "", commune: await communeDe(ll) });
+      PH.p = S.store.panels.get(id) || { id, lat: ll[0], lng: ll[1] }; PH.geo.d = 0; nouveau = true;
+    }
     const r = await S.store.envoyerPhoto({
       panneauId: PH.p.id, candidatId: PH.c.id, blob: PH.blob, source: PH.source,
       distance: PH.geo?.d ?? null, precision: PH.geo?.acc ?? null, texte: PH.texte, score: PH.score,
     });
     $("photoDlg").close();
-    toast(r.statut === "verifiee" ? "Affiche vérifiée par photo : +3 points"
-      : r.statut === "a_valider" ? "Photo envoyée : les autres joueurs vont la valider. +1 point"
-      : "Photo enregistrée, mais le nom n'a pas été reconnu. +1 point");
+    toast((PH.libre ? PH.c.nom + " · " : "") + (r.statut === "verifiee" ? "Affiche vérifiée par photo : +3 points"
+      : r.statut === "a_valider" ? "Photo envoyée, les autres joueurs vont la valider : +1 point"
+      : "Photo enregistrée, mais le nom n'a pas été reconnu : +1 point")
+      + (nouveau ? " (et +3 pour le nouveau panneau)" : ""));
+    if (PH.libre) map.setView([PH.p.lat, PH.p.lng], Math.max(map.getZoom(), 17));
   } catch (e) { console.error(e); showPhErr(explain(e)); }
   finally { PH.busy = false; $("phSend").disabled = false; $("phSend").textContent = "Envoyer"; }
 };
