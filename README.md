@@ -41,7 +41,7 @@ npm test        # tests des règles du jeu
 1. Créez un projet gratuit sur [supabase.com](https://supabase.com) (région Europe).
 2. **SQL Editor > New query** : collez le contenu de `supabase/schema.sql`, puis **Run**.
 3. **Authentication > Sign In / Providers** : activez **Allow anonymous sign-ins** (les joueurs choisissent juste un pseudo).
-4. Pré-remplissez la carte avec les panneaux OpenStreetMap, depuis votre ordinateur :
+4. Pré-remplissez la carte avec les panneaux OpenStreetMap : dans **SQL Editor**, collez `supabase/seed-osm.sql` puis **Run**. (Variante en ligne de commande, pour un autre fichier OSM :)
    ```bash
    SUPABASE_URL=https://xxxx.supabase.co SUPABASE_SERVICE_ROLE_KEY=eyJ... npm run import-osm
    ```
