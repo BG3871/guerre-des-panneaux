@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#18213a">
+  <meta name="description" content="La carte collaborative des panneaux d'affichage libre, et le jeu de territoire entre candidats.">
+  <title>Guerre des panneaux</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='4' y='5' width='24' height='16' rx='2' fill='%232b3cc4'/%3E%3Crect x='14' y='21' width='4' height='8' fill='%2318213a'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anton&family=Familjen+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+</head>
+<body>
+<div class="app" id="app">
+  <header>
+    <div class="brand"><h1>Guerre des <span>panneaux</span></h1><small>la carte de l'affichage d'expression libre</small></div>
+    <div class="cands" id="cands" role="group" aria-label="Candidat suivi"></div>
+    <div class="mode" role="group" aria-label="Vue de la carte">
+      <button id="m-cand" aria-pressed="true">Mon candidat</button>
+      <button id="m-all" aria-pressed="false">Bataille</button>
+    </div>
+  </header>
+  <main>
+    <div id="map">
+      <div class="scale-tag" id="scaleTag">Secteurs</div>
+      <button class="locate" id="locate" title="Me localiser" aria-label="Me localiser">
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="12" cy="12" r="4" fill="currentColor"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="12" r="7.5" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+      </button>
+    </div>
+    <aside id="side">
+      <div class="banner" id="loading">Chargement de la carte…</div>
+      <div class="banner" id="localBanner" hidden>
+        <div><b>Mode local.</b> <span id="localWhy"></span></div>
+        <div class="row" id="localActs">
+          <button class="btn small ghost" id="localEmpty">Partir d'une carte vide</button>
+          <button class="btn small ghost" id="localDemo">Remettre l'exemple</button>
+        </div>
+      </div>
+      <div class="banner" id="emptyBanner" hidden></div>
+
+      <section>
+        <p class="label" id="scoreTitle">Score</p>
+        <div class="score">
+          <div><strong id="sCov">–</strong><span>panneaux avec l'affiche</span></div>
+          <div><strong id="sTerr">–</strong><span id="sTerrLbl">secteurs conquis</span></div>
+        </div>
+        <div style="margin-top:10px" class="bar" id="sBar"><i style="width:0"></i></div>
+        <p class="hint" style="margin-top:6px" id="sDetail"></p>
+      </section>
+
+      <section>
+        <p class="label">Légende</p>
+        <div class="legend">
+          <span><i class="dot" style="background:var(--vert)"></i>affiche présente</span>
+          <span><i class="dot" style="background:var(--rouge)"></i>absente</span>
+          <span><i class="dot" style="background:var(--gris)"></i>pas encore relevé</span>
+        </div>
+        <p class="hint" style="margin-top:6px">Zoomez pour voir chaque panneau, puis touchez-en un pour noter si l'affiche y est.</p>
+      </section>
+
+      <section>
+        <p class="label">Classement des candidats</p>
+        <ul class="rank cands" id="rankCands"></ul>
+      </section>
+
+      <section id="addSec">
+        <button class="btn" id="addBtn">+ Signaler un panneau</button>
+        <form class="sheet" id="addForm" hidden novalidate>
+          <h3>Nouveau panneau</h3>
+          <p class="hint">Touchez la carte à l'endroit du panneau, utilisez votre position si vous êtes devant, ou collez ses coordonnées GPS.</p>
+          <button type="button" class="btn ghost" id="fHere">📍 Je suis devant le panneau</button>
+          <label class="field">Coordonnées<input class="mono" id="fCoord" placeholder="48.85661, 2.35222" autocomplete="off" inputmode="decimal"></label>
+          <label class="field">Emplacement<input id="fLieu" placeholder="Devant la mairie, rue de la République" maxlength="120"></label>
+          <label class="field">Commune<input id="fCommune" placeholder="Saint-Martin-d'Hères" maxlength="80"></label>
+          <p class="warn" id="fWarn" hidden></p>
+          <p class="err" id="fErr" hidden></p>
+          <div class="row"><button type="button" class="btn ghost" id="fCancel">Annuler</button><button type="submit" class="btn" id="fSave">Enregistrer</button></div>
+        </form>
+        <form class="sheet" id="candForm" hidden novalidate>
+          <h3>Ajouter un candidat</h3>
+          <label class="field">Nom<input id="cNom" maxlength="60" placeholder="Prénom Nom"></label>
+          <label class="field">Couleur<input id="cCouleur" type="color" value="#2b3cc4"></label>
+          <p class="err" id="cErr" hidden></p>
+          <div class="row"><button type="button" class="btn ghost" id="cCancel">Annuler</button><button type="submit" class="btn">Ajouter</button></div>
+        </form>
+      </section>
+
+      <section>
+        <p class="label">Meilleurs colleurs</p>
+        <ul class="rank" id="rankPlayers"></ul>
+        <p class="hint" style="margin-top:6px" id="meLine">1 point par vérification, 3 points par panneau signalé.</p>
+      </section>
+
+      <section>
+        <p class="label">Règles du jeu</p>
+        <ul class="rules">
+          <li>La France est découpée en secteurs hexagonaux. Leur taille suit le zoom : de 60 km vue de toute la France à 250 m dans un quartier.</li>
+          <li>Un candidat conquiert un secteur quand son affiche est sur au moins la moitié des panneaux du secteur.</li>
+          <li>En vue « Bataille », chaque secteur prend la couleur du candidat le mieux affiché.</li>
+          <li>Chaque vérification rapporte 1 point (une par panneau, candidat et jour), chaque panneau signalé 3 points.</li>
+          <li>Un relevé de plus de 14 jours apparaît pâli : une affiche peut avoir été recouverte.</li>
+        </ul>
+      </section>
+    </aside>
+  </main>
+</div>
+
+<dialog id="pseudoDlg">
+  <form method="dialog" id="pseudoForm" novalidate>
+    <h3>Choisissez un pseudo</h3>
+    <p class="hint">Il apparaît dans le classement des colleurs. Pas d'e-mail ni de mot de passe : votre compte reste sur cet appareil.</p>
+    <label class="field">Pseudo<input id="pNom" maxlength="30" minlength="2" autocomplete="nickname" placeholder="Colleur du 11e"></label>
+    <p class="err" id="pErr" hidden></p>
+    <div class="row"><button type="button" class="btn ghost" id="pCancel">Annuler</button><button type="submit" class="btn" id="pOk">Valider</button></div>
+  </form>
+</dialog>
+<div class="toast" id="toast" role="status" hidden></div>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
