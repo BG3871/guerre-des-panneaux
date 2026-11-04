@@ -51,7 +51,7 @@ npm test        # tests des règles du jeu
 ## Mettre en ligne (GitHub Pages)
 
 1. Dans le dépôt GitHub : **Settings > Pages > Source : GitHub Actions**.
-2. **Settings > Secrets and variables > Actions > Variables** : ajoutez `VITE_SUPABASE_URL` et `VITE_SUPABASE_ANON_KEY`.
+2. Rien d'autre à configurer : l'adresse du projet Supabase et sa clé publique sont dans `.env.production` (valeurs publiques par conception).
 3. Chaque fusion sur `main` publie le site sur `https://<compte>.github.io/guerre-des-panneaux/`.
 
 ## Limites connues de cette première version
