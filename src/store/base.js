@@ -35,11 +35,18 @@ export class BaseStore {
     if (p && typeof p.lat === "number" && typeof p.lng === "number") this.panels.set(p.id, p);
   }
   delPanel(id) { this.panels.delete(id); this.statuts.delete(id); }
-  /** r = {p, c, ok, at, by} ; ne garde que le relevé le plus récent. */
+  /**
+   * r = {id, p, c, ok, at, by, v} (v = vérifié par photo) ; ne garde que le relevé le plus récent,
+   * sauf qu'un relevé vérifié de moins de 24 h n'est pas remplacé par un relevé sans photo.
+   */
   putStatut(r) {
     let m = this.statuts.get(r.p);
     if (!m) this.statuts.set(r.p, (m = new Map()));
-    const old = m.get(r.c);
-    if (!old || (r.at || 0) >= (old.at || 0)) m.set(r.c, { ok: !!r.ok, at: r.at || 0, by: r.by || null });
+    const old = m.get(r.c), at = r.at || 0;
+    // même règle que la vue statut_actuel ; la correction d'un même relevé (même id) passe toujours
+    const protege = old && old.v && !r.v && r.id !== old.id && at - old.at < 864e5;
+    if (!old || (!protege && at >= (old.at || 0))) {
+      m.set(r.c, { id: r.id ?? null, ok: !!r.ok, at, by: r.by || null, v: !!r.v });
+    }
   }
 }

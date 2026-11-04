@@ -163,3 +163,70 @@ export function ago(t, now = Date.now()) {
   const d = Math.floor((now - t) / 864e5);
   return d <= 0 ? "aujourd'hui" : d === 1 ? "hier" : "il y a " + d + " j";
 }
+
+/* ---------- reconnaissance d'une affiche (texte lu par OCR) ---------- */
+export const SEUIL_PHOTO = 0.8;   // score à partir duquel le nom est jugé reconnu
+export const DISTANCE_PHOTO = 50; // mètres maximum entre le joueur et le panneau
+
+/** Majuscules sans accents, chiffres confondus avec les lettres qu'ils imitent, mots séparés par une espace. */
+export function normTexte(s) {
+  return String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toUpperCase()
+    // un chiffre collé à une lettre est sans doute une lettre mal lue (DUP0NT) ; « 2027 » reste un nombre
+    .replace(/(?<=[A-Z])[0158]|[0158](?=[A-Z])/g, (d) => ({ 0: "O", 1: "I", 5: "S", 8: "B" })[d])
+    .replace(/[^A-Z]+/g, " ").trim();
+}
+
+function levenshtein(a, b) {
+  if (a === b) return 0;
+  let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++) {
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    }
+    prev = cur;
+  }
+  return prev[b.length];
+}
+/** Similarité de 0 à 1 entre deux chaînes. */
+export function similarite(a, b) {
+  if (!a || !b) return 0;
+  return 1 - levenshtein(a, b) / Math.max(a.length, b.length);
+}
+
+/** Ce qu'on cherche sur l'affiche : le nom complet, le nom de famille (dernier mot) et les alias. */
+export function ciblesCandidat(c) {
+  const out = new Set();
+  const nom = normTexte(c.nom);
+  if (nom) out.add(nom);
+  const mots = nom.split(" ").filter((m) => m.length >= 3);
+  if (mots.length > 1) out.add(mots[mots.length - 1]);
+  for (const a of c.alias || []) { const n = normTexte(a); if (n.length >= 3) out.add(n); }
+  return [...out];
+}
+
+/**
+ * Score de 0 à 1 : meilleure ressemblance entre une cible du candidat et un groupe de mots
+ * consécutifs du texte lu (même nombre de mots, ou collés si l'OCR a mangé les espaces).
+ */
+export function scoreCandidat(texte, c) {
+  const mots = normTexte(texte).split(" ").filter(Boolean);
+  if (!mots.length) return 0;
+  let best = 0;
+  for (const cible of ciblesCandidat(c)) {
+    const k = cible.split(" ").length, colle = cible.replace(/ /g, "");
+    for (let i = 0; i + k <= mots.length; i++) {
+      const g = mots.slice(i, i + k);
+      best = Math.max(best, similarite(g.join(" "), cible), similarite(g.join(""), colle));
+    }
+    // nom coupé en deux par l'OCR (« DU PONT ») : on essaie aussi deux mots collés
+    if (k === 1) for (let i = 0; i + 2 <= mots.length; i++) best = Math.max(best, similarite(mots[i] + mots[i + 1], colle));
+    if (best === 1) break;
+  }
+  return Math.round(best * 100) / 100;
+}
+
+/** Candidats triés par score décroissant. */
+export function classerCandidats(texte, cands) {
+  return cands.map((c) => ({ cand: c, score: scoreCandidat(texte, c) })).sort((a, b) => b.score - a.score);
+}

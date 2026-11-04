@@ -3,7 +3,7 @@ import "leaflet/dist/leaflet.css";
 import "./style.css";
 import {
   STALE_MS, hexSize, hexLabel, hexPolygon, sectors, shares, leader, territories, coverage,
-  present, parseCoord, nearby, ago,
+  present, parseCoord, nearby, ago, distance, classerCandidats, SEUIL_PHOTO, DISTANCE_PHOTO,
 } from "./game.js";
 import { openStore } from "./store/index.js";
 
@@ -128,6 +128,7 @@ function renderSide(panels) {
     ? "La carte partagée est vide pour l'instant. Ajoutez les candidats suivis, puis signalez les panneaux de votre commune." : "";
   schedulePlayers();
   scheduleDemandes();
+  scheduleValidation();
 }
 
 let playersT = null;
@@ -264,11 +265,18 @@ function openPopup(p, marker) {
     yes.setAttribute("aria-pressed", String(v?.ok === true)); no.setAttribute("aria-pressed", String(v?.ok === false));
     yes.onclick = () => setStatus(p, c, true); no.onclick = () => setStatus(p, c, false);
     acts.append(yes, no); box.append(acts);
+    if (st.canPhoto) {
+      const ph = el("button", "photo", "📷 Prouver par une photo");
+      ph.onclick = () => { map.closePopup(); openPhoto(p, c); };
+      const a2 = el("div", "acts"); a2.append(ph); box.append(a2);
+    }
   }
   const ul = el("ul");
   for (const k of st.cands) {
     const v = st.statuts.get(p.id)?.get(k.id), li = el("li");
-    li.append(el("b", null, k.nom), el("span", null, v ? (v.ok ? "présente" : "absente") + " · " + ago(v.at) : "pas relevé"));
+    const etat = el("span", null, v ? (v.ok ? "présente" : "absente") + " · " + ago(v.at) : "pas relevé");
+    if (v?.v) { const b = el("span", "badge", "photo"); b.title = "Vérifié par une photo"; etat.append(b); }
+    li.append(el("b", null, k.nom), etat);
     ul.append(li);
   }
   if (st.cands.length) box.append(ul);
@@ -486,3 +494,158 @@ setMode(S.mode);
     if (bb.getNorth() - bb.getSouth() < 4) { try { map.fitBounds(bb.pad(0.2), { maxZoom: 14 }); } catch {} }
   }
 })();
+
+/* ---------- vérification par photo ---------- */
+const PH = { p: null, c: null, stream: null, geo: null, watch: null, blob: null, source: "camera", texte: "", score: 0, busy: false };
+let ocrMod = null;
+const ocr = () => (ocrMod ||= import("./ocr.js"));
+
+async function openPhoto(p, c) {
+  if (!(await needAccount())) return;
+  Object.assign(PH, { p, c, geo: null, blob: null, source: "camera", texte: "", score: 0, busy: false });
+  $("phTitle").textContent = "Affiche de " + c.nom;
+  $("phErr").hidden = true; $("phRes").hidden = true; $("phImg").hidden = true;
+  $("phShoot").hidden = false; $("phShoot").disabled = true; $("phSend").hidden = true; $("phRetake").hidden = true;
+  $("phGeo").textContent = "Recherche de votre position…";
+  $("photoDlg").showModal();
+  ocr().then((m) => m.prechargerOcr()).catch(() => {});
+  // position du joueur, comparée à celle du panneau
+  if (navigator.geolocation) {
+    PH.watch = navigator.geolocation.watchPosition((pos) => {
+      const ll = [pos.coords.latitude, pos.coords.longitude];
+      PH.geo = { d: distance(ll, [p.lat, p.lng]), acc: pos.coords.accuracy };
+      const ok = PH.geo.d <= DISTANCE_PHOTO;
+      $("phGeo").textContent = (ok ? "📍 " : "⚠ ") + "Vous êtes à " + Math.round(PH.geo.d) + " m du panneau (précision " + Math.round(PH.geo.acc) + " m)"
+        + (ok ? "." : ". Rapprochez-vous à moins de " + DISTANCE_PHOTO + " m pour que la photo compte d'office.");
+    }, () => { $("phGeo").textContent = "⚠ Position indisponible : la photo sera validée par les autres joueurs."; },
+    { enableHighAccuracy: true, maximumAge: 10000, timeout: 20000 });
+  } else $("phGeo").textContent = "⚠ Position indisponible sur cet appareil.";
+  await startCamera();
+}
+async function startCamera() {
+  const v = $("phVideo"), msg = $("phCamMsg");
+  msg.hidden = false; msg.textContent = "Ouverture de l'appareil photo…";
+  try {
+    PH.stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1440 } }, audio: false });
+    v.srcObject = PH.stream; v.hidden = false; await v.play();
+    msg.hidden = true; $("phShoot").disabled = false; PH.source = "camera";
+  } catch {
+    // pas d'accès direct à la caméra : on passe par le sélecteur de fichier (la photo ira en validation)
+    v.hidden = true; msg.textContent = "Appareil photo direct indisponible. Touchez « Prendre la photo » pour utiliser l'appareil du téléphone.";
+    $("phShoot").disabled = false; PH.source = "fichier";
+  }
+}
+function stopPhoto() {
+  if (PH.stream) { PH.stream.getTracks().forEach((t) => t.stop()); PH.stream = null; }
+  if (PH.watch != null) { navigator.geolocation.clearWatch(PH.watch); PH.watch = null; }
+  $("phVideo").srcObject = null;
+}
+$("photoDlg").addEventListener("close", stopPhoto);
+$("phCancel").onclick = () => $("photoDlg").close();
+
+/** Image réduite à 1600 px au plus grand côté, en JPEG (ce qui retire aussi les métadonnées EXIF). */
+function toCanvas(src, w, h) {
+  const k = Math.min(1, 1600 / Math.max(w, h)), cv = document.createElement("canvas");
+  cv.width = Math.round(w * k); cv.height = Math.round(h * k);
+  cv.getContext("2d").drawImage(src, 0, 0, cv.width, cv.height);
+  return cv;
+}
+$("phShoot").onclick = async () => {
+  if (PH.source === "fichier") { $("phFile").value = ""; $("phFile").click(); return; }
+  const v = $("phVideo");
+  if (!v.videoWidth) return;
+  await analyse(toCanvas(v, v.videoWidth, v.videoHeight));
+};
+$("phFile").onchange = async () => {
+  const f = $("phFile").files?.[0]; if (!f) return;
+  const img = new Image(); img.src = URL.createObjectURL(f);
+  try { await img.decode(); } catch { showPhErr("Image illisible."); return; }
+  await analyse(toCanvas(img, img.naturalWidth, img.naturalHeight));
+  URL.revokeObjectURL(img.src);
+};
+$("phRetake").onclick = () => {
+  $("phImg").hidden = true; $("phRes").hidden = true; $("phErr").hidden = true;
+  $("phSend").hidden = true; $("phRetake").hidden = true; $("phShoot").hidden = false;
+  if (PH.source === "camera") $("phVideo").hidden = false; else $("phCamMsg").hidden = false;
+};
+function showPhErr(t) { $("phErr").textContent = t; $("phErr").hidden = false; }
+
+async function analyse(cv) {
+  PH.blob = await new Promise((r) => cv.toBlob(r, "image/jpeg", 0.82));
+  $("phImg").src = cv.toDataURL("image/jpeg", 0.7); $("phImg").hidden = false; $("phVideo").hidden = true; $("phCamMsg").hidden = true;
+  $("phShoot").hidden = true; $("phRetake").hidden = false; $("phErr").hidden = true;
+  const res = $("phRes"); res.hidden = false; res.textContent = "Lecture de l'affiche…";
+  try {
+    PH.texte = await (await ocr()).lireAffiche(cv);
+  } catch (e) {
+    console.error(e); PH.texte = "";
+    res.textContent = "La lecture automatique n'a pas pu se lancer (connexion ?). Vous pouvez envoyer la photo : elle sera validée par les autres joueurs.";
+  }
+  const cands = S.store.cands, ranked = classerCandidats(PH.texte, cands);
+  PH.score = ranked.find((r) => r.cand.id === PH.c.id)?.score || 0;
+  const autre = ranked[0] && ranked[0].cand.id !== PH.c.id && ranked[0].score >= SEUIL_PHOTO && ranked[0].score > PH.score ? ranked[0].cand : null;
+  if (PH.texte) {
+    const pct = Math.round(PH.score * 100) + " %";
+    res.textContent = (PH.score >= SEUIL_PHOTO ? "✓ Nom reconnu : " + PH.c.nom + " (" + pct + ")."
+      : PH.score >= 0.5 ? "Nom de " + PH.c.nom + " peut-être lu (" + pct + ") : la photo sera validée par les autres joueurs."
+      : "Le nom de " + PH.c.nom + " n'a pas été lu (" + pct + "). Reprenez la photo de plus près, ou envoyez-la quand même.")
+      + (autre ? " On dirait plutôt l'affiche de " + autre.nom + "." : "")
+      + " Texte lu : « " + PH.texte.slice(0, 120) + (PH.texte.length > 120 ? "…" : "") + " »";
+  } else if (!res.textContent.startsWith("La lecture")) {
+    res.textContent = "Aucun texte lu. Reprenez la photo en vous approchant, nom du candidat bien en face.";
+  }
+  $("phSend").hidden = false;
+}
+$("phSend").onclick = async () => {
+  if (PH.busy || !PH.blob) return;
+  PH.busy = true; $("phSend").disabled = true; $("phSend").textContent = "Envoi…";
+  try {
+    const r = await S.store.envoyerPhoto({
+      panneauId: PH.p.id, candidatId: PH.c.id, blob: PH.blob, source: PH.source,
+      distance: PH.geo?.d ?? null, precision: PH.geo?.acc ?? null, texte: PH.texte, score: PH.score,
+    });
+    $("photoDlg").close();
+    toast(r.statut === "verifiee" ? "Affiche vérifiée par photo : +3 points"
+      : r.statut === "a_valider" ? "Photo envoyée : les autres joueurs vont la valider. +1 point"
+      : "Photo enregistrée, mais le nom n'a pas été reconnu. +1 point");
+  } catch (e) { console.error(e); showPhErr(explain(e)); }
+  finally { PH.busy = false; $("phSend").disabled = false; $("phSend").textContent = "Envoyer"; }
+};
+
+/* ---------- photos à valider par les joueurs ---------- */
+let valT = null, valSig = "";
+function scheduleValidation() { clearTimeout(valT); valT = setTimeout(renderValidation, 700); }
+async function renderValidation(force) {
+  const st = S.store;
+  if (!st.canPhoto || !st.me) { $("valSec").hidden = true; return; }
+  const sig = [st.me, st.cands.length, Math.floor(Date.now() / 60000)].join("|");
+  if (!force && sig === valSig) return;
+  valSig = sig;
+  let list;
+  try { list = await st.photosAValider(5); } catch (e) { console.error(e); return; }
+  const ul = $("valList"); ul.replaceChildren();
+  $("valSec").hidden = !list.length;
+  for (const ph of list) {
+    const c = st.cands.find((k) => k.id === ph.candidat_id), p = st.panels.get(ph.panneau_id);
+    const li = el("li");
+    if (ph.url) { const img = el("img"); img.src = ph.url; img.alt = "Photo d'un panneau"; img.loading = "lazy"; li.append(img); }
+    const txt = el("div", "txt");
+    txt.append(el("b", null, "Est-ce l'affiche de " + (c?.nom || "ce candidat") + " ?"),
+      el("span", "hint", (p ? (p.lieu || "Panneau") + " · " + (p.commune || "") + " · " : "") + "texte lu : « " + (ph.texte_lu || "rien").slice(0, 80) + " »"));
+    li.append(txt);
+    const acts = el("div", "acts");
+    for (const [v, lbl, cls] of [["oui", "✓ Oui", "btn small"], ["non", "✗ Non", "btn small ghost"], ["illisible", "Illisible", "btn small ghost"]]) {
+      const b = el("button", cls, lbl);
+      b.onclick = async () => {
+        if (!(await needAccount())) return;
+        acts.querySelectorAll("button").forEach((x) => (x.disabled = true));
+        try { await st.voter(ph.id, v); toast("Merci, avis enregistré."); }
+        catch (e) { toast(e?.code === "42501" ? "Cette photo ne peut plus recevoir d'avis." : explain(e)); }
+        renderValidation(true);
+      };
+      acts.append(b);
+    }
+    li.append(acts); ul.append(li);
+  }
+}
+

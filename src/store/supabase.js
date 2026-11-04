@@ -5,11 +5,12 @@ import { BaseStore } from "./base.js";
 
 const PAGE = 1000;
 const ts = (v) => (v ? Date.parse(v) : 0);
-const toCand = (r) => ({ id: r.id, nom: r.nom, couleur: r.couleur, by: r.cree_par, at: ts(r.cree_le) });
+const toCand = (r) => ({ id: r.id, nom: r.nom, couleur: r.couleur, alias: r.alias || [], by: r.cree_par, at: ts(r.cree_le) });
 const toPanel = (r) => ({ id: r.id, lat: r.lat, lng: r.lng, lieu: r.lieu || "", commune: r.commune || "",
   source: r.source, by: r.cree_par, at: ts(r.cree_le) });
 const DEM_COLS = "id,nom,parti,source_url,couleur,statut,motif,nb_soutiens,cree_le,traite_le";
-const toStatut = (r) => ({ p: r.panneau_id, c: r.candidat_id, ok: r.present, by: r.auteur, at: ts(r.cree_le) });
+const toStatut = (r) => ({ id: r.id, p: r.panneau_id, c: r.candidat_id, ok: r.present, by: r.auteur, at: ts(r.cree_le), v: !!r.verifie });
+const PHOTO_COLS = "id,panneau_id,candidat_id,chemin,source,texte_lu,score,statut,votes_oui,votes_non,votes_illisible,cree_le";
 
 export class SupabaseStore extends BaseStore {
   constructor(url, key) {
@@ -17,7 +18,8 @@ export class SupabaseStore extends BaseStore {
     this.kind = "supabase";
     this.isDemo = false;
     this.canWrite = true;
-    this.canRequest = true;   // les joueurs proposent des candidats, les administrateurs les créent
+    this.canRequest = true;
+    this.canPhoto = true;     // vérification des affiches par photo   // les joueurs proposent des candidats, les administrateurs les créent
     this.isAdmin = false;
     this.email = null;
     this.sb = createClient(url, key, { auth: { persistSession: true, autoRefreshToken: true } });
@@ -60,9 +62,9 @@ export class SupabaseStore extends BaseStore {
   }
   async _loadAll() {
     const [cands, panels, statuts] = await Promise.all([
-      this._all("candidats", "id,nom,couleur,cree_par,cree_le", toCand),
+      this._all("candidats", "id,nom,couleur,alias,cree_par,cree_le", toCand),
       this._all("panneaux", "id,lat,lng,lieu,commune,source,cree_par,cree_le", toPanel),
-      this._all("statut_actuel", "id,panneau_id,candidat_id,present,auteur,cree_le", toStatut),
+      this._all("statut_actuel", "id,panneau_id,candidat_id,present,auteur,cree_le,verifie", toStatut),
     ]);
     cands.forEach((c) => this.putCand(c));
     panels.forEach((p) => this.putPanel(p));
@@ -185,5 +187,58 @@ export class SupabaseStore extends BaseStore {
     const { error } = await this.sb.auth.signInWithOtp({ email, options: { shouldCreateUser: false, emailRedirectTo } });
     if (error) throw error;
     return "connexion";
+  }
+
+  /* ---------- vérification par photo ---------- */
+  /**
+   * Envoie la photo puis l'enregistre ; la base décide du statut (vérifiée, à valider, non vérifiée)
+   * et met à jour le relevé du jour. Renvoie {id, statut}.
+   */
+  async envoyerPhoto({ panneauId, candidatId, blob, source, distance, precision, texte, score }) {
+    const chemin = `${this.me}/${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}.jpg`;
+    const up = await this.sb.storage.from("photos").upload(chemin, blob, { contentType: "image/jpeg", upsert: false });
+    if (up.error) throw up.error;
+    const { data, error } = await this.sb.from("photos").insert({
+      panneau_id: panneauId, candidat_id: candidatId, chemin, source,
+      distance_m: distance == null ? null : Math.round(distance),
+      precision_m: precision == null ? null : Math.round(precision),
+      texte_lu: (texte || "").slice(0, 2000), score,
+    }).select("id,statut").single();
+    if (error) throw error;
+    this._retenirPhoto(data.id);
+    await this._rechargerStatut(panneauId, candidatId);
+    return data;
+  }
+  async _rechargerStatut(pid, cid) {
+    const { data } = await this.sb.from("statut_actuel").select("id,panneau_id,candidat_id,present,auteur,cree_le,verifie")
+      .eq("panneau_id", pid).eq("candidat_id", cid).maybeSingle();
+    if (data) { this.putStatut(toStatut(data)); this.changed(); }
+  }
+  /** Photos en attente de validation, sans celles où j'ai déjà voté. Avec une adresse d'image temporaire. */
+  async photosAValider(limit = 6) {
+    if (!this.me) return [];
+    const [{ data, error }, { data: mesVotes }] = await Promise.all([
+      this.sb.from("photos").select(PHOTO_COLS).eq("statut", "a_valider").order("cree_le", { ascending: true }).limit(40),
+      this.sb.from("votes_photo").select("photo_id"),
+    ]);
+    if (error) throw error;
+    const vus = new Set((mesVotes || []).map((v) => v.photo_id));
+    const mine = this._mesPhotos();
+    const list = data.filter((p) => !vus.has(p.id) && !mine.has(p.id)).slice(0, limit);
+    if (!list.length) return [];
+    const { data: urls } = await this.sb.storage.from("photos").createSignedUrls(list.map((p) => p.chemin), 3600);
+    const byPath = new Map((urls || []).map((u) => [u.path, u.signedUrl]));
+    return list.map((p) => ({ ...p, url: byPath.get(p.chemin) || null }));
+  }
+  _mesPhotos() {
+    // l'auteur des photos est caché : on se souvient localement des siennes pour ne pas se les proposer
+    try { return new Set(JSON.parse(localStorage.getItem("gdp-mes-photos") || "[]")); } catch { return new Set(); }
+  }
+  _retenirPhoto(id) {
+    try { const s = [...this._mesPhotos(), id].slice(-200); localStorage.setItem("gdp-mes-photos", JSON.stringify(s)); } catch {}
+  }
+  async voter(photoId, vote) {
+    const { error } = await this.sb.from("votes_photo").insert({ photo_id: photoId, vote });
+    if (error && error.code !== "23505") throw error;
   }
 }
