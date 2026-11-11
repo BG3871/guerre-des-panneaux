@@ -502,7 +502,8 @@ setMode(S.mode);
 })();
 
 /* ---------- vérification par photo ---------- */
-const PH = { libre: false, ll: null, p: null, c: null, stream: null, geo: null, watch: null, blob: null, source: "camera", texte: "", score: 0, busy: false };
+const AUCUN = "aucun"; // choix « aucune affiche de candidat sur ce panneau »
+const PH = { libre: false, aucun: false, ll: null, p: null, c: null, stream: null, geo: null, watch: null, blob: null, source: "camera", texte: "", score: 0, busy: false };
 let ocrMod = null;
 const ocr = () => (ocrMod ||= import("./ocr.js"));
 
@@ -512,10 +513,10 @@ const ocr = () => (ocrMod ||= import("./ocr.js"));
  */
 async function openPhoto(p = null, c = null) {
   if (!(await needAccount())) return;
-  Object.assign(PH, { libre: !p, ll: null, p, c, geo: null, blob: null, source: "camera", texte: "", score: 0, busy: false });
+  Object.assign(PH, { libre: !p, aucun: false, ll: null, p, c, geo: null, blob: null, source: "camera", texte: "", score: 0, busy: false });
   $("phTitle").textContent = p ? "Affiche de " + c.nom : "Photographier une affiche";
   $("phHint").textContent = p ? "Cadrez l'affiche bien en face, nom du candidat lisible. Restez près du panneau."
-    : "Placez-vous devant le panneau et cadrez une affiche, nom du candidat lisible. Le panneau et le candidat sont trouvés automatiquement.";
+    : "Placez-vous devant le panneau et cadrez une affiche, nom du candidat lisible. Le panneau et le candidat sont trouvés automatiquement. Aucune affiche électorale ? Prenez le panneau en photo et choisissez « Aucun candidat ».";
   $("phCandF").hidden = true;
   $("phErr").hidden = true; $("phRes").hidden = true; $("phImg").hidden = true;
   $("phShoot").hidden = false; $("phShoot").disabled = true; $("phSend").hidden = true; $("phRetake").hidden = true;
@@ -627,6 +628,7 @@ function choixCandidat(ranked) {
   const best = ranked[0] && ranked[0].score >= 0.5 ? ranked[0] : null, sel = $("phCand");
   sel.replaceChildren(el("option", null, "— choisir —"));
   sel.firstChild.value = "";
+  const aucun = el("option", null, "Aucun candidat (pas d'affiche électorale)"); aucun.value = AUCUN; sel.append(aucun);
   for (const r of ranked) { const o = el("option", null, r.cand.nom); o.value = r.cand.id; sel.append(o); }
   sel.value = best ? best.cand.id : "";
   $("phCandF").hidden = false;
@@ -634,10 +636,16 @@ function choixCandidat(ranked) {
 }
 function majCandidat() {
   const id = $("phCand").value, r = PH.ranked?.find((x) => x.cand.id === id), res = $("phRes");
-  PH.c = r?.cand || null; PH.score = r?.score || 0;
+  PH.aucun = id === AUCUN; PH.c = r?.cand || null; PH.score = r?.score || 0;
   const lu = PH.texte ? " Texte lu : « " + PH.texte.slice(0, 120) + (PH.texte.length > 120 ? "…" : "") + " »" : "";
-  const pct = Math.round(PH.score * 100) + " %";
-  res.textContent = !PH.c ? (PH.texte ? "Candidat non reconnu. Choisissez-le ci-dessous, ou reprenez la photo de plus près." : "Aucun texte lu. Reprenez la photo en vous approchant, ou choisissez le candidat.") + lu
+  const pct = Math.round(PH.score * 100) + " %", n = S.store.cands.length;
+  // texte lu sans aucun nom de candidat : souvent du bruit (décor, affiches de concert…), inutile de l'afficher
+  res.textContent = PH.aucun ? (n
+      ? "Aucune affiche de candidat : " + (n > 1 ? "les " + n + " candidats seront notés absents" : "le candidat sera noté absent") + " sur ce panneau (+" + n + " point" + (n > 1 ? "s" : "") + "). La photo n'est pas envoyée."
+      : "Aucun candidat n'est encore suivi : seul le panneau sera enregistré.")
+    : !PH.c ? (PH.texte
+      ? "Aucun nom de candidat lu sur la photo. S'il n'y a pas d'affiche électorale (concerts, pubs…), choisissez « Aucun candidat » ci-dessous. Sinon choisissez le candidat, ou reprenez la photo plus près de l'affiche."
+      : "Aucun texte lu. Choisissez le candidat, ou « Aucun candidat » s'il n'y a pas d'affiche électorale, ou reprenez la photo en vous approchant.")
     : PH.score >= SEUIL_PHOTO ? "✓ Affiche de " + PH.c.nom + " reconnue (" + pct + ")." + lu
     : PH.score >= 0.5 ? "Affiche de " + PH.c.nom + " peut-être (" + pct + ") : la photo sera validée par les autres joueurs." + lu
     : "Le nom de " + PH.c.nom + " n'a pas été lu (" + pct + ") : la photo sera validée par les autres joueurs." + lu;
@@ -652,7 +660,7 @@ async function communeDe(ll) {
 $("phSend").onclick = async () => {
   if (PH.busy || !PH.blob) return;
   if (PH.libre) {
-    if (!PH.c) { showPhErr("Choisissez le candidat de l'affiche."); return; }
+    if (!PH.c && !PH.aucun) { showPhErr("Choisissez le candidat de l'affiche, ou « Aucun candidat »."); return; }
     if (!PH.ll) { showPhErr("Position inconnue : autorisez la localisation pour retrouver le panneau."); return; }
     if (!PH.p && PH.geo?.acc > DISTANCE_PHOTO) { showPhErr("Position trop imprécise pour placer le panneau. Réessayez dans quelques secondes."); return; }
   }
@@ -662,6 +670,16 @@ $("phSend").onclick = async () => {
     if (PH.libre && !PH.p) {
       const ll = PH.ll, id = await S.store.addPanel({ lat: +ll[0].toFixed(6), lng: +ll[1].toFixed(6), lieu: "", commune: await communeDe(ll) });
       PH.p = S.store.panels.get(id) || { id, lat: ll[0], lng: ll[1] }; PH.geo.d = 0; nouveau = true;
+    }
+    if (PH.aucun) {
+      // pas d'affiche électorale : chaque candidat suivi est noté absent ; la photo, sans candidat, n'est pas gardée
+      const ids = S.store.cands.map((k) => k.id);
+      if (ids.length) await S.store.setAbsents(PH.p.id, ids);
+      $("photoDlg").close();
+      toast((ids.length ? "Aucun candidat sur ce panneau, noté : +" + ids.length + " point" + (ids.length > 1 ? "s" : "") : "Panneau enregistré")
+        + (nouveau ? (ids.length ? " (et +3 pour le nouveau panneau)" : " : +3 points") : ""));
+      map.setView([PH.p.lat, PH.p.lng], Math.max(map.getZoom(), 17));
+      return;
     }
     const r = await S.store.envoyerPhoto({
       panneauId: PH.p.id, candidatId: PH.c.id, blob: PH.blob, source: PH.source,

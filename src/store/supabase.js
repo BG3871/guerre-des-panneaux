@@ -128,6 +128,15 @@ export class SupabaseStore extends BaseStore {
     if (error) throw error;
     this.putStatut(toStatut(data)); this.changed();
   }
+  /** Tous ces candidats notés absents du panneau, en une seule requête. */
+  async setAbsents(pid, cids) {
+    const { data, error } = await this.sb.from("releves")
+      .upsert(cids.map((cid) => ({ panneau_id: pid, candidat_id: cid, present: false, auteur: this.me })),
+        { onConflict: "panneau_id,candidat_id,auteur,jour" })
+      .select();
+    if (error) throw error;
+    data.forEach((r) => this.putStatut(toStatut(r))); this.changed();
+  }
   async leaderboard(limit = 8) {
     const { data, error } = await this.sb.from("classement").select("id,pseudo,points").order("points", { ascending: false }).limit(limit);
     if (error) throw error;
