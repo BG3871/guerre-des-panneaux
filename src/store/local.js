@@ -74,6 +74,7 @@ export class LocalStore extends BaseStore {
     const r = { p: pid, c: cid, ok, at, by: this.me };
     this.db.releves.push(r); this._save(); this.putStatut(r); this.changed();
   }
+  async setAbsents(pid, cids) { for (const cid of cids) await this.setReleve(pid, cid, false); }
   async leaderboard(limit = 8) {
     const pts = playerPoints(this.db.panels, this.db.releves);
     return [...pts].sort((a, b) => b[1] - a[1]).slice(0, limit)
