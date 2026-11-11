@@ -206,14 +206,14 @@ export function ciblesCandidat(c) {
 }
 
 /**
- * Score de 0 à 1 : meilleure ressemblance entre une cible du candidat et un groupe de mots
- * consécutifs du texte lu (même nombre de mots, ou collés si l'OCR a mangé les espaces).
+ * Score de 0 à 1 : meilleure ressemblance entre une cible et un groupe de mots consécutifs
+ * du texte lu (même nombre de mots, ou collés si l'OCR a mangé les espaces).
  */
-export function scoreCandidat(texte, c) {
+export function scoreCibles(texte, cibles) {
   const mots = normTexte(texte).split(" ").filter(Boolean);
   if (!mots.length) return 0;
   let best = 0;
-  for (const cible of ciblesCandidat(c)) {
+  for (const cible of cibles) {
     const k = cible.split(" ").length, colle = cible.replace(/ /g, "");
     for (let i = 0; i + k <= mots.length; i++) {
       const g = mots.slice(i, i + k);
@@ -226,7 +226,38 @@ export function scoreCandidat(texte, c) {
   return Math.round(best * 100) / 100;
 }
 
-/** Candidats triés par score décroissant. */
-export function classerCandidats(texte, cands) {
-  return cands.map((c) => ({ cand: c, score: scoreCandidat(texte, c) })).sort((a, b) => b.score - a.score);
+/** Score du nom (et des alias) du candidat dans le texte lu. */
+export function scoreCandidat(texte, c) {
+  return scoreCibles(texte, ciblesCandidat(c));
+}
+
+/**
+ * Un slogan ou un nom de parti lu sans le nom du candidat ne prouve pas grand-chose
+ * (affiche du parti, détournement…) : il compte au plus pour 0,7, donc validation par les joueurs.
+ */
+export const POIDS_INDICES = 0.7;
+
+/** Fiche d'affiches (src/affiches-2027.json) d'un candidat de la carte, retrouvée par son nom. */
+export function ficheDe(c, fiches) {
+  const n = normTexte(c.nom);
+  return fiches.find((f) => normTexte(f.nom) === n)
+    || fiches.find((f) => { const a = normTexte(f.nom).split(" ").pop(), b = n.split(" ").pop(); return a.length >= 4 && a === b; })
+    || null;
+}
+
+/**
+ * Candidats triés par score décroissant. Le score est le meilleur de trois indices :
+ * nom lu (OCR), slogans/parti lus (plafonnés à POIDS_INDICES), affiche reconnue à l'image.
+ * @param visuel Map id candidat → { score, titre } (reconnaissance visuelle), facultatif
+ * @param fiches fiches d'affiches des candidats déclarés, facultatif
+ */
+export function classerCandidats(texte, cands, { visuel = null, fiches = [] } = {}) {
+  return cands.map((c) => {
+    const nom = scoreCandidat(texte, c), f = ficheDe(c, fiches);
+    const ind = f && f.indices?.length ? Math.round(scoreCibles(texte, f.indices.map(normTexte)) * POIDS_INDICES * 100) / 100 : 0;
+    const vis = visuel?.get(c.id) || null, v = vis?.score || 0;
+    const score = Math.max(nom, ind, v);
+    const par = score === 0 ? null : score === nom ? "nom" : score === v ? "affiche" : "indice";
+    return { cand: c, score, par, nom, indice: ind, visuel: v, affiche: vis?.titre || null };
+  }).sort((a, b) => b.score - a.score);
 }

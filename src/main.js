@@ -3,7 +3,7 @@ import "leaflet/dist/leaflet.css";
 import "./style.css";
 import {
   STALE_MS, hexSize, hexLabel, hexPolygon, sectors, shares, leader, territories, coverage,
-  present, parseCoord, nearby, ago, distance, classerCandidats, SEUIL_PHOTO, DISTANCE_PHOTO,
+  present, parseCoord, nearby, ago, distance, classerCandidats, ficheDe, SEUIL_PHOTO, DISTANCE_PHOTO,
 } from "./game.js";
 import { openStore } from "./store/index.js";
 
@@ -506,6 +506,40 @@ const AUCUN = "aucun"; // choix « aucune affiche de candidat sur ce panneau »
 const PH = { libre: false, aucun: false, ll: null, p: null, c: null, stream: null, geo: null, watch: null, blob: null, source: "camera", texte: "", score: 0, busy: false };
 let ocrMod = null;
 const ocr = () => (ocrMod ||= import("./ocr.js"));
+// affiches des candidats déclarés (empreintes visuelles, slogans) et moteur de reconnaissance à l'image,
+// chargés seulement quand on photographie
+let affMod = null;
+const affiches = () => (affMod ||= Promise.all([import("./vision.js"), import("./affiches-2027.json")])
+  .then(([vision, j]) => ({ vision, fiches: (j.default || j).candidats })).catch((e) => { affMod = null; throw e; }));
+let refsCache = { sig: "", refs: [] };
+/** Références visuelles des candidats suivis sur la carte (calculées une fois par liste de candidats). */
+function refsAffiches(vision, fiches) {
+  const cands = S.store.cands, sig = cands.map((c) => c.id + c.nom).join("|");
+  if (refsCache.sig !== sig) {
+    const refs = [];
+    for (const c of cands) {
+      const f = ficheDe(c, fiches);
+      (f?.affiches || []).forEach((a, i) => refs.push({ id: c.id + "#" + i, cand: c.id, titre: a.titre, ref: vision.chargerReference(a.empreinte) }));
+    }
+    refsCache = { sig, refs };
+  }
+  return refsCache.refs;
+}
+/** Reconnaissance à l'image : id candidat → { score, titre, points } (meilleure de ses affiches). */
+async function reconnaitreAffiches(cv) {
+  const { vision, fiches } = await affiches(), refs = refsAffiches(vision, fiches), out = new Map();
+  if (!refs.length) return { out, fiches };
+  for (const r of vision.chercherAffiches(vision.imageDeTravail(cv), refs)) {
+    const ref = refs.find((x) => x.id === r.id), b = out.get(ref.cand);
+    if (r.score > 0 && (!b || r.score > b.score)) out.set(ref.cand, { score: r.score, titre: ref.titre, points: r.points });
+  }
+  return { out, fiches };
+}
+/** Pourquoi ce candidat : nom lu, slogan/parti lu ou affiche reconnue à l'image. */
+function raison(r) {
+  return r.par === "affiche" ? "affiche « " + r.affiche + " » reconnue à l'image"
+    : r.par === "indice" ? "slogan ou parti lu sur l'affiche, sans le nom" : "nom lu";
+}
 
 /**
  * Sans panneau ni candidat (bouton principal) : le panneau est le plus proche de la position GPS
@@ -513,16 +547,17 @@ const ocr = () => (ocrMod ||= import("./ocr.js"));
  */
 async function openPhoto(p = null, c = null) {
   if (!(await needAccount())) return;
-  Object.assign(PH, { libre: !p, aucun: false, ll: null, p, c, geo: null, blob: null, source: "camera", texte: "", score: 0, busy: false });
+  Object.assign(PH, { libre: !p, aucun: false, ll: null, p, c, geo: null, blob: null, source: "camera", texte: "", score: 0, vu: null, busy: false });
   $("phTitle").textContent = p ? "Affiche de " + c.nom : "Photographier une affiche";
-  $("phHint").textContent = p ? "Cadrez l'affiche bien en face, nom du candidat lisible. Restez près du panneau."
-    : "Placez-vous devant le panneau et cadrez une affiche, nom du candidat lisible. Le panneau et le candidat sont trouvés automatiquement. Aucune affiche électorale ? Prenez le panneau en photo et choisissez « Aucun candidat ».";
+  $("phHint").textContent = p ? "Cadrez l'affiche entière, bien en face. Restez près du panneau."
+    : "Placez-vous devant le panneau et cadrez une affiche entière, bien en face. Le panneau et le candidat sont trouvés automatiquement. Aucune affiche électorale ? Prenez le panneau en photo et choisissez « Aucun candidat ».";
   $("phCandF").hidden = true;
   $("phErr").hidden = true; $("phRes").hidden = true; $("phImg").hidden = true;
   $("phShoot").hidden = false; $("phShoot").disabled = true; $("phSend").hidden = true; $("phRetake").hidden = true;
   $("phGeo").textContent = "Recherche de votre position…";
   $("photoDlg").showModal();
   ocr().then((m) => m.prechargerOcr()).catch(() => {});
+  affiches().catch(() => {});
   // position du joueur, comparée à celle du panneau
   if (navigator.geolocation) {
     PH.watch = navigator.geolocation.watchPosition((pos) => {
@@ -606,19 +641,23 @@ async function analyse(cv) {
     console.error(e); PH.texte = "";
     res.textContent = "La lecture automatique n'a pas pu se lancer (connexion ?). Vous pouvez envoyer la photo : elle sera validée par les autres joueurs.";
   }
-  const cands = S.store.cands, ranked = classerCandidats(PH.texte, cands);
+  let visuel = null, fiches = [];
+  try { ({ out: visuel, fiches } = await reconnaitreAffiches(cv)); } catch (e) { console.error(e); }
+  const cands = S.store.cands, ranked = classerCandidats(PH.texte, cands, { visuel, fiches });
+  PH.vu = visuel; // gardé pour la trace envoyée avec la photo
   if (PH.libre) { choixCandidat(ranked); $("phSend").hidden = false; return; }
-  PH.score = ranked.find((r) => r.cand.id === PH.c.id)?.score || 0;
+  const moi = ranked.find((r) => r.cand.id === PH.c.id);
+  PH.score = moi?.score || 0;
   const autre = ranked[0] && ranked[0].cand.id !== PH.c.id && ranked[0].score >= SEUIL_PHOTO && ranked[0].score > PH.score ? ranked[0].cand : null;
-  if (PH.texte) {
+  const lu = PH.texte ? " Texte lu : « " + PH.texte.slice(0, 120) + (PH.texte.length > 120 ? "…" : "") + " »" : "";
+  if (PH.score > 0 || PH.texte) {
     const pct = Math.round(PH.score * 100) + " %";
-    res.textContent = (PH.score >= SEUIL_PHOTO ? "✓ Nom reconnu : " + PH.c.nom + " (" + pct + ")."
-      : PH.score >= 0.5 ? "Nom de " + PH.c.nom + " peut-être lu (" + pct + ") : la photo sera validée par les autres joueurs."
+    res.textContent = (PH.score >= SEUIL_PHOTO ? "✓ " + PH.c.nom + " reconnu (" + pct + ", " + raison(moi) + ")."
+      : PH.score >= 0.5 ? PH.c.nom + " peut-être reconnu (" + pct + ", " + raison(moi) + ") : la photo sera validée par les autres joueurs."
       : "Le nom de " + PH.c.nom + " n'a pas été lu (" + pct + "). Reprenez la photo de plus près, ou envoyez-la quand même.")
-      + (autre ? " On dirait plutôt l'affiche de " + autre.nom + "." : "")
-      + " Texte lu : « " + PH.texte.slice(0, 120) + (PH.texte.length > 120 ? "…" : "") + " »";
+      + (autre ? " On dirait plutôt l'affiche de " + autre.nom + "." : "") + lu;
   } else if (!res.textContent.startsWith("La lecture")) {
-    res.textContent = "Aucun texte lu. Reprenez la photo en vous approchant, nom du candidat bien en face.";
+    res.textContent = "Aucun texte lu ni affiche reconnue. Reprenez la photo en vous approchant, affiche bien en face.";
   }
   $("phSend").hidden = false;
 }
@@ -637,6 +676,7 @@ function choixCandidat(ranked) {
 function majCandidat() {
   const id = $("phCand").value, r = PH.ranked?.find((x) => x.cand.id === id), res = $("phRes");
   PH.aucun = id === AUCUN; PH.c = r?.cand || null; PH.score = r?.score || 0;
+  const pourquoi = r && r.score > 0 ? ", " + raison(r) : "";
   const lu = PH.texte ? " Texte lu : « " + PH.texte.slice(0, 120) + (PH.texte.length > 120 ? "…" : "") + " »" : "";
   const pct = Math.round(PH.score * 100) + " %", n = S.store.cands.length;
   // texte lu sans aucun nom de candidat : souvent du bruit (décor, affiches de concert…), inutile de l'afficher
@@ -646,8 +686,8 @@ function majCandidat() {
     : !PH.c ? (PH.texte
       ? "Aucun nom de candidat lu sur la photo. S'il n'y a pas d'affiche électorale (concerts, pubs…), choisissez « Aucun candidat » ci-dessous. Sinon choisissez le candidat, ou reprenez la photo plus près de l'affiche."
       : "Aucun texte lu. Choisissez le candidat, ou « Aucun candidat » s'il n'y a pas d'affiche électorale, ou reprenez la photo en vous approchant.")
-    : PH.score >= SEUIL_PHOTO ? "✓ Affiche de " + PH.c.nom + " reconnue (" + pct + ")." + lu
-    : PH.score >= 0.5 ? "Affiche de " + PH.c.nom + " peut-être (" + pct + ") : la photo sera validée par les autres joueurs." + lu
+    : PH.score >= SEUIL_PHOTO ? "✓ Affiche de " + PH.c.nom + " reconnue (" + pct + pourquoi + ")." + lu
+    : PH.score >= 0.5 ? "Affiche de " + PH.c.nom + " peut-être (" + pct + pourquoi + ") : la photo sera validée par les autres joueurs." + lu
     : "Le nom de " + PH.c.nom + " n'a pas été lu (" + pct + ") : la photo sera validée par les autres joueurs." + lu;
 }
 $("phCand").onchange = majCandidat;
@@ -683,7 +723,9 @@ $("phSend").onclick = async () => {
     }
     const r = await S.store.envoyerPhoto({
       panneauId: PH.p.id, candidatId: PH.c.id, blob: PH.blob, source: PH.source,
-      distance: PH.geo?.d ?? null, precision: PH.geo?.acc ?? null, texte: PH.texte, score: PH.score,
+      distance: PH.geo?.d ?? null, precision: PH.geo?.acc ?? null, score: PH.score,
+      // texte lu + affiche reconnue à l'image, pour ceux qui valideront la photo
+      texte: [PH.texte, PH.vu?.get(PH.c.id) ? "[affiche reconnue : « " + PH.vu.get(PH.c.id).titre + " », " + PH.vu.get(PH.c.id).points + " points]" : ""].filter(Boolean).join(" ").slice(0, 2000),
     });
     $("photoDlg").close();
     toast((PH.libre ? PH.c.nom + " · " : "") + (r.statut === "verifiee" ? "Affiche vérifiée par photo : +3 points"
