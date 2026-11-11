@@ -112,3 +112,39 @@ describe("lecture des affiches", () => {
     expect(r[0].score).toBe(1);
   });
 });
+
+import { ficheDe, POIDS_INDICES } from "../src/game.js";
+
+describe("indices et affiches des candidats déclarés", () => {
+  const mel = { id: "jlm", nom: "Jean-Luc Mélenchon" };
+  const lis = { id: "dl", nom: "David Lisnard" };
+  const fiches = [
+    { nom: "Jean-Luc Mélenchon", indices: ["LA PAIX MAINTENANT", "LA FRANCE INSOUMISE"] },
+    { nom: "David Lisnard", indices: ["NOUVELLE ENERGIE"] },
+  ];
+  it("retrouve la fiche par le nom, accents ou non", () => {
+    expect(ficheDe({ nom: "Jean-Luc MELENCHON" }, fiches)?.nom).toBe("Jean-Luc Mélenchon");
+    expect(ficheDe({ nom: "Mélenchon" }, fiches)?.nom).toBe("Jean-Luc Mélenchon");
+    expect(ficheDe({ nom: "Élise Martin" }, fiches)).toBeNull();
+  });
+  it("un slogan lu sans le nom compte, mais plafonné (validation par les joueurs)", () => {
+    const r = classerCandidats("LA PAIX MAINTENANT !", [lis, mel], { fiches });
+    expect(r[0].cand.id).toBe("jlm");
+    expect(r[0].score).toBe(POIDS_INDICES);
+    expect(r[0].par).toBe("indice");
+  });
+  it("le nom lu l'emporte sur le slogan", () => {
+    const r = classerCandidats("MELENCHON LA PAIX MAINTENANT", [mel], { fiches });
+    expect(r[0].score).toBe(1);
+    expect(r[0].par).toBe("nom");
+  });
+  it("l'affiche reconnue à l'image suffit quand l'OCR ne lit rien", () => {
+    const visuel = new Map([["jlm", { score: 0.86, titre: "La paix maintenant !" }]]);
+    const r = classerCandidats("", [lis, mel], { fiches, visuel });
+    expect(r[0]).toMatchObject({ score: 0.86, par: "affiche", affiche: "La paix maintenant !" });
+    expect(r[1].score).toBe(0);
+  });
+  it("sans fiche ni image, rien ne change", () => {
+    expect(classerCandidats("ELISE MARTIN", [mel])[0].score).toBeLessThan(0.5);
+  });
+});

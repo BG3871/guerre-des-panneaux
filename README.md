@@ -10,6 +10,7 @@ La carte collaborative des **panneaux d'affichage libre** (expression libre) en 
 - **Liste des candidats tenue par l'organisateur** : les joueurs proposent un candidat (nom, parti, lien source) et soutiennent les demandes des autres (+1) ; l'organisateur accepte ou refuse depuis la section « Candidats demandés ». On ne voit pas qui a demandé ou soutenu un candidat.
 - Compte rattachable à une adresse e-mail, pour le retrouver sur un autre appareil.
 - **Vérification par photo** : bouton « 📷 Photographier une affiche » sur la carte (le panneau le plus proche à moins de 50 m est trouvé par GPS, ou ajouté à la position du joueur s'il n'y en a pas ; le candidat est celui que lit l'OCR, corrigeable), ou « Prouver par une photo » depuis la fiche d'un panneau. Le texte de l'affiche est lu dans le téléphone (Tesseract.js, rien n'est envoyé à un service d'IA) et comparé au nom du candidat. Nom reconnu à 80 % ou plus et joueur à moins de 50 m : relevé « vérifié » (+2 points, badge « photo »). Sinon, la photo part dans « Photos à valider », où 3 avis identiques d'autres joueurs tranchent. Une photo vérifiée sur dix y passe aussi, au hasard. Le statut est décidé par la base, pas par le téléphone.
+- **Reconnaissance des affiches des candidats déclarés** : en plus du nom lu par l'OCR, le téléphone compare la photo aux affiches officielles connues (`src/affiches-2027.json`) par empreintes visuelles ORB + RANSAC (jsfeat, dans le navigateur, gratuit). 10 points cohérents ≈ 50 %, 20 points ≈ 80 % ; une photo sans l'affiche n'a jamais dépassé 6 points sur 180 photos simulées. Les slogans et noms de partis lus sans le nom du candidat comptent au plus 70 % (validation par les joueurs). Le dépôt ne contient aucune image d'affiche, seulement leurs empreintes et l'adresse où elles sont publiées. Ajouter une affiche : `node scripts/empreinte-affiche.mjs "Nom du candidat" "Titre" affiche.jpg URL-source` (image JPEG recadrée au ras de l'affiche).
 
 ## Architecture
 
@@ -25,6 +26,8 @@ Sans Supabase configuré, l'appli tourne en **mode local** : données d'exemple 
 ```
 src/game.js            règles du jeu (secteurs, conquête, points, lecture des noms) — testées dans tests/
 src/ocr.js             lecture du texte des affiches (Tesseract.js, chargé à la première photo)
+src/vision.js          reconnaissance des affiches à l'image (empreintes ORB, jsfeat)
+src/affiches-2027.json candidats déclarés à la présidentielle 2027 : parti, slogans, empreintes d'affiches
 src/main.js            interface et carte
 src/store/supabase.js  carte partagée          src/store/local.js  mode local
 supabase/schema.sql    tables, vues, droits, temps réel

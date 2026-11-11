@@ -13,10 +13,12 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "2.118.0",
+    "jsfeat": "0.0.8",
     "leaflet": "1.9.4",
     "tesseract.js": "7.0.0"
   },
   "devDependencies": {
+    "jpeg-js": "0.4.4",
     "vite": "8.3.5",
     "vitest": "5.1.0"
   }
