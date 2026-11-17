@@ -6,6 +6,9 @@ import {
   present, parseCoord, nearby, ago, distance, classerCandidats, ficheDe, SEUIL_PHOTO, DISTANCE_PHOTO,
 } from "./game.js";
 import { openStore } from "./store/index.js";
+import { enregistrerServiceWorker } from "./natif.js";
+
+enregistrerServiceWorker();
 
 const $ = (id) => document.getElementById(id);
 const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
@@ -478,6 +481,7 @@ setMode(S.mode);
   }
   $("loading").hidden = true;
   const st = S.store;
+  st.onErreurLien = (msg) => toast("Le lien de connexion n'a pas fonctionné : " + msg);
   $("shootBtn").hidden = !st.canPhoto;
   $("shootBtn").onclick = () => openPhoto();
   if (st.kind === "local") {

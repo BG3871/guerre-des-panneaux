@@ -1,0 +1,55 @@
+name: Appli Android
+
+# Fabrique l'APK de l'appli à chaque mise en ligne.
+# - sur une PR : l'APK est joint au résumé de l'exécution (onglet Actions) ;
+# - sur main : il est aussi publié dans la version « appli-android » du dépôt,
+#   téléchargeable directement depuis un téléphone.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - run: npm ci
+      - run: npm run build
+      - run: npx cap sync android
+      - name: Compilation
+        working-directory: android
+        run: ./gradlew assembleDebug --no-daemon -PversionCode=${{ github.run_number }}
+      - run: mv android/app/build/outputs/apk/debug/app-debug.apk guerre-des-panneaux.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: guerre-des-panneaux-apk
+          path: guerre-des-panneaux.apk
+      - name: Publication sur la page des versions
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          NOTES="Appli Android de Guerre des panneaux, version 1.0.${{ github.run_number }} (commit ${GITHUB_SHA::7}).
+
+          Installation : ouvrez cette page sur le téléphone, touchez guerre-des-panneaux.apk, puis acceptez l'installation depuis cette source si Android le demande. Une nouvelle version s'installe par-dessus l'ancienne."
+          if gh release view appli-android >/dev/null 2>&1; then
+            gh release upload appli-android guerre-des-panneaux.apk --clobber
+            gh release edit appli-android --notes "$NOTES"
+          else
+            gh release create appli-android guerre-des-panneaux.apk --title "Appli Android" --notes "$NOTES" --target "$GITHUB_SHA" --latest
+          fi
