@@ -1,6 +1,7 @@
 // État partagé par les deux sources de données (Supabase ou mode local).
 // cands   : [{id, nom, couleur, at}]
-// panels  : Map(id -> {id, lat, lng, lieu, commune, source, by, at})
+// panels  : Map(id -> {id, lat, lng, lieu, commune, source, by, at, signale, masque})
+//           (signale = nb de joueurs qui l'ont signalé disparu ; un panneau masqué n'est pas gardé)
 // statuts : Map(panneauId -> Map(candidatId -> {ok, at, by}))   (dernier relevé connu)
 
 export class BaseStore {
@@ -10,6 +11,7 @@ export class BaseStore {
     this.statuts = new Map();
     this.me = null;
     this.pseudo = null;
+    this.mesDisparus = new Set();   // panneaux que j'ai signalés disparus
     this._subs = new Set();
     this._t = null;
   }
@@ -32,7 +34,14 @@ export class BaseStore {
     for (const m of this.statuts.values()) m.delete(id);
   }
   putPanel(p) {
-    if (p && typeof p.lat === "number" && typeof p.lng === "number") this.panels.set(p.id, p);
+    if (p && p.masque) this.delPanel(p.id);
+    else if (p && typeof p.lat === "number" && typeof p.lng === "number") this.panels.set(p.id, p);
+  }
+  /** Un relevé prouve que le panneau est là : la base annule les signalements « disparu » en cours. */
+  vu(pid) {
+    this.mesDisparus.delete(pid);
+    const p = this.panels.get(pid);
+    if (p?.signale) p.signale = 0;
   }
   delPanel(id) { this.panels.delete(id); this.statuts.delete(id); }
   /**

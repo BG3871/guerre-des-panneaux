@@ -58,6 +58,10 @@ npm test        # tests des règles du jeu
    insert into public.admins select id from auth.users where email = 'votre@adresse.fr';
    ```
    Pour que les liens reçus par e-mail ramènent sur le site, renseignez l'adresse du site dans **Authentication > URL Configuration** (Site URL et Redirect URLs).
+
+### Panneaux disparus
+
+Dans la fiche d'un panneau, « Panneau disparu ? » permet de dire qu'il n'existe plus sur place. Le panneau n'est jamais effacé : il est masqué de la carte quand **2 joueurs différents** l'ont signalé (ou tout de suite si c'est un organisateur), et l'historique reste en base. Un relevé fait entre-temps sur le panneau prouve qu'il est là et annule les signalements. Pour rétablir un panneau masqué par erreur, voir l'en-tête de `supabase/migrations/004_panneaux_disparus.sql`. Une base déjà en service reçoit cette fonction en exécutant ce fichier dans le **SQL Editor**.
 6. Pour tester en local avec la vraie base, copiez `.env.example` en `.env.local` et remplissez `VITE_SUPABASE_URL` et `VITE_SUPABASE_ANON_KEY` (clé « anon », publique).
 
 ## Mettre en ligne (GitHub Pages)
