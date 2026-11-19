@@ -260,6 +260,11 @@ function openPopup(p, marker) {
   const st = S.store, box = el("div", "pp");
   box.append(el("h4", null, p.lieu || "Panneau d'affichage libre"),
     el("p", "meta", (p.commune || "Commune inconnue") + " · " + p.lat.toFixed(5) + ", " + p.lng.toFixed(5)));
+  if (p.signale > 0) {
+    box.append(el("p", "alerte", st.mesDisparus.has(p.id)
+      ? "Vous avez signalé ce panneau disparu. Il sera retiré de la carte si un autre joueur le confirme."
+      : `⚠ ${p.signale > 1 ? p.signale + " joueurs l'ont" : "Un joueur l'a"} signalé disparu. Il est bien là ? Faites un relevé, cela annule le signalement.`));
+  }
   const c = st.cands.find((x) => x.id === S.sel);
   if (c) {
     const v = st.statuts.get(p.id)?.get(c.id);
@@ -292,6 +297,14 @@ function openPopup(p, marker) {
     const del = el("button", null, "Supprimer"); let armed = false;
     del.onclick = async () => { if (!armed) { armed = true; del.textContent = "Confirmer la suppression"; return; } await removePanel(p); map.closePopup(); };
     links.append(del);
+  } else if (!st.mesDisparus.has(p.id)) {
+    const gone = el("button", null, "Panneau disparu ?"); let armed = false;
+    gone.title = "Vous êtes sur place et le panneau n'existe plus";
+    gone.onclick = async () => {
+      if (!armed) { armed = true; gone.textContent = "Confirmer : il n'est plus là"; return; }
+      map.closePopup(); await signalerDisparu(p);
+    };
+    links.append(gone);
   }
   box.append(links);
   L.popup({ maxWidth: 300, autoPanPadding: [20, 20] }).setLatLng(marker.getLatLng()).setContent(box).openOn(map);
@@ -332,6 +345,14 @@ async function setStatus(p, c, ok) {
   if (!(await needAccount())) return;
   try { await S.store.setReleve(p.id, c.id, ok); toast(ok ? "Affiche présente, noté ! +1" : "Affiche absente, noté. +1"); map.closePopup(); }
   catch (e) { toast(explain(e)); }
+}
+async function signalerDisparu(p) {
+  if (!(await needAccount())) return;
+  try {
+    const r = await S.store.signalerDisparu(p.id);
+    toast(r.masque ? "Merci ! Le panneau est retiré de la carte."
+      : "Merci ! Il sera retiré dès qu'un autre joueur confirme sa disparition.");
+  } catch (e) { toast(explain(e)); }
 }
 async function removePanel(p) {
   try { await S.store.removePanel(p.id); toast("Panneau supprimé."); } catch (e) { toast(explain(e)); }

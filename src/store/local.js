@@ -67,12 +67,21 @@ export class LocalStore extends BaseStore {
     this.db.releves = this.db.releves.filter((r) => r.p !== id);
     this._save(); this.delPanel(id); this.changed();
   }
+  /** En local on est seul : le panneau est masqué tout de suite (gardé dans les données). */
+  async signalerDisparu(id) {
+    const p = this.db.panels.find((x) => x.id === id);
+    if (p) { p.masque = Date.now(); p.signale = 1; }
+    this._save(); this.delPanel(id); this.changed();
+    return { masque: true, signale: 1 };
+  }
   async setReleve(pid, cid, ok) {
     const at = Date.now(), j = day(at);
     // un seul relevé (donc un point) par panneau, candidat, joueur et jour : on remplace celui du jour
     this.db.releves = this.db.releves.filter((r) => !(r.p === pid && r.c === cid && r.by === this.me && day(r.at) === j));
     const r = { p: pid, c: cid, ok, at, by: this.me };
-    this.db.releves.push(r); this._save(); this.putStatut(r); this.changed();
+    this.db.releves.push(r);
+    this.vu(pid);   // quelqu'un l'a vu : le signalement est annulé
+    this._save(); this.putStatut(r); this.changed();
   }
   async setAbsents(pid, cids) { for (const cid of cids) await this.setReleve(pid, cid, false); }
   async leaderboard(limit = 8) {

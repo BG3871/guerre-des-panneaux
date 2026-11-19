@@ -7,7 +7,8 @@ const PAGE = 1000;
 const ts = (v) => (v ? Date.parse(v) : 0);
 const toCand = (r) => ({ id: r.id, nom: r.nom, couleur: r.couleur, alias: r.alias || [], by: r.cree_par, at: ts(r.cree_le) });
 const toPanel = (r) => ({ id: r.id, lat: r.lat, lng: r.lng, lieu: r.lieu || "", commune: r.commune || "",
-  source: r.source, by: r.cree_par, at: ts(r.cree_le) });
+  source: r.source, by: r.cree_par, at: ts(r.cree_le), signale: r.signale_disparu || 0, masque: !!r.masque_le });
+const PANEL_COLS = "id,lat,lng,lieu,commune,source,cree_par,cree_le,signale_disparu,masque_le";
 const DEM_COLS = "id,nom,parti,source_url,couleur,statut,motif,nb_soutiens,cree_le,traite_le";
 const toStatut = (r) => ({ id: r.id, p: r.panneau_id, c: r.candidat_id, ok: r.present, by: r.auteur, at: ts(r.cree_le), v: !!r.verifie });
 const PHOTO_COLS = "id,panneau_id,candidat_id,chemin,source,texte_lu,score,statut,votes_oui,votes_non,votes_illisible,cree_le";
@@ -41,14 +42,16 @@ export class SupabaseStore extends BaseStore {
   async _session(session) {
     this.me = session?.user?.id || null;
     this.email = session?.user?.email || null;
-    this.pseudo = null; this.isAdmin = false;
+    this.pseudo = null; this.isAdmin = false; this.mesDisparus = new Set();
     if (!this.me) return;
-    const [{ data: prof }, { data: adm }] = await Promise.all([
+    const [{ data: prof }, { data: adm }, { data: sig }] = await Promise.all([
       this.sb.from("profils").select("pseudo").eq("id", this.me).maybeSingle(),
       this.sb.from("admins").select("user_id").eq("user_id", this.me).maybeSingle(),
+      this.sb.from("signalements_disparu").select("panneau_id").is("annule_le", null),
     ]);
     this.pseudo = prof?.pseudo || null;
     this.isAdmin = !!adm;
+    this.mesDisparus = new Set((sig || []).map((r) => r.panneau_id));
   }
 
   async _all(table, cols, map) {
@@ -63,7 +66,7 @@ export class SupabaseStore extends BaseStore {
   async _loadAll() {
     const [cands, panels, statuts] = await Promise.all([
       this._all("candidats", "id,nom,couleur,alias,cree_par,cree_le", toCand),
-      this._all("panneaux", "id,lat,lng,lieu,commune,source,cree_par,cree_le", toPanel),
+      this._all("panneaux", PANEL_COLS, toPanel),
       this._all("statut_actuel", "id,panneau_id,candidat_id,present,auteur,cree_le,verifie", toStatut),
     ]);
     cands.forEach((c) => this.putCand(c));
@@ -119,6 +122,19 @@ export class SupabaseStore extends BaseStore {
     if (error) throw error;
     this.delPanel(id); this.changed();
   }
+  /**
+   * Signale le panneau comme disparu. La base le masque à partir de 2 joueurs (ou d'un organisateur).
+   * Renvoie {masque, signale}.
+   */
+  async signalerDisparu(id) {
+    const { error } = await this.sb.from("signalements_disparu").insert({ panneau_id: id });
+    if (error && error.code !== "23505") throw error;
+    this.mesDisparus.add(id);
+    const { data } = await this.sb.from("panneaux").select(PANEL_COLS).eq("id", id).maybeSingle();
+    const p = data ? toPanel(data) : { id, masque: true };
+    this.putPanel(p); this.changed();
+    return { masque: p.masque, signale: p.signale || 0 };
+  }
   async setReleve(pid, cid, ok) {
     // un relevé par panneau, candidat, joueur et jour : refaire le relevé le même jour le corrige
     const { data, error } = await this.sb.from("releves")
@@ -126,7 +142,7 @@ export class SupabaseStore extends BaseStore {
         { onConflict: "panneau_id,candidat_id,auteur,jour" })
       .select().single();
     if (error) throw error;
-    this.putStatut(toStatut(data)); this.changed();
+    this.vu(pid); this.putStatut(toStatut(data)); this.changed();
   }
   /** Tous ces candidats notés absents du panneau, en une seule requête. */
   async setAbsents(pid, cids) {
@@ -135,7 +151,7 @@ export class SupabaseStore extends BaseStore {
         { onConflict: "panneau_id,candidat_id,auteur,jour" })
       .select();
     if (error) throw error;
-    data.forEach((r) => this.putStatut(toStatut(r))); this.changed();
+    this.vu(pid); data.forEach((r) => this.putStatut(toStatut(r))); this.changed();
   }
   async leaderboard(limit = 8) {
     const { data, error } = await this.sb.from("classement").select("id,pseudo,points").order("points", { ascending: false }).limit(limit);
@@ -216,6 +232,7 @@ export class SupabaseStore extends BaseStore {
     }).select("id,statut").single();
     if (error) throw error;
     this._retenirPhoto(data.id);
+    this.vu(panneauId);
     await this._rechargerStatut(panneauId, candidatId);
     return data;
   }
