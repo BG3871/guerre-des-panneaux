@@ -12,12 +12,16 @@
     "import-osm": "node scripts/import-osm.mjs"
   },
   "dependencies": {
+    "@capacitor/android": "8.6.0",
+    "@capacitor/app": "8.1.2",
+    "@capacitor/core": "8.6.0",
     "@supabase/supabase-js": "2.118.0",
     "jsfeat": "0.0.8",
     "leaflet": "1.9.4",
     "tesseract.js": "7.0.0"
   },
   "devDependencies": {
+    "@capacitor/cli": "8.6.0",
     "jpeg-js": "0.4.4",
     "vite": "8.3.5",
     "vitest": "5.1.0"

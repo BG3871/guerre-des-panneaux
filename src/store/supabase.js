@@ -2,6 +2,7 @@
 // Le schéma est dans supabase/schema.sql.
 import { createClient } from "@supabase/supabase-js";
 import { BaseStore } from "./base.js";
+import { adresseRetour, ecouterLiensConnexion } from "../natif.js";
 
 const PAGE = 1000;
 const ts = (v) => (v ? Date.parse(v) : 0);
@@ -35,6 +36,8 @@ export class SupabaseStore extends BaseStore {
         setTimeout(() => this._session(session).then(() => this.changed()), 0);
       }
     });
+    // dans l'appli : le lien reçu par e-mail rouvre l'appli au lieu du site
+    ecouterLiensConnexion(this.sb, (msg) => this.onErreurLien?.(msg));
     await this._loadAll();
     this._listen();
   }
@@ -202,7 +205,7 @@ export class SupabaseStore extends BaseStore {
   /* ---------- compte par e-mail (pour garder son compte sur plusieurs appareils) ---------- */
   /** Compte anonyme : rattache l'adresse (lien de confirmation). Sinon : envoie un lien de connexion. */
   async lienEmail(email) {
-    const emailRedirectTo = location.origin + location.pathname;
+    const emailRedirectTo = adresseRetour();
     const { data } = await this.sb.auth.getSession();
     if (data.session?.user?.is_anonymous) {
       const { error } = await this.sb.auth.updateUser({ email }, { emailRedirectTo });

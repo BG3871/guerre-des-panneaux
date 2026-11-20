@@ -70,6 +70,27 @@ Dans la fiche d'un panneau, « Panneau disparu ? » permet de dire qu'il n'exist
 2. Rien d'autre à configurer : l'adresse du projet Supabase et sa clé publique sont dans `.env.production` (valeurs publiques par conception).
 3. Chaque fusion sur `main` publie le site sur `https://<compte>.github.io/guerre-des-panneaux/`.
 
+## Appli mobile
+
+Le même code donne trois façons d'avoir l'appli sur un téléphone.
+
+**Android : l'APK.** Chaque fusion sur `main` fabrique l'appli (workflow `.github/workflows/android.yml`) et la publie sur la page des versions du dépôt, version « Appli Android » : ouvrez-la depuis le téléphone, touchez `guerre-des-panneaux.apk` et acceptez l'installation. Une nouvelle version s'installe par-dessus l'ancienne. Sur une PR, l'APK est joint à l'exécution dans l'onglet Actions.
+
+**iPhone et Android : l'appli web installable.** Le site a un manifeste et un service worker : dans Safari, « Partager > Sur l'écran d'accueil » ; dans Chrome, « Installer l'application ». L'appli s'ouvre en plein écran et son interface reste disponible sans réseau (la carte partagée, elle, a besoin du réseau).
+
+**Liens de connexion par e-mail dans l'appli Android.** L'appli demande à Supabase de renvoyer le lien vers `guerredespanneaux://connexion`, qui rouvre l'appli et y ouvre la session. Ajoutez cette adresse dans **Authentication > URL Configuration > Redirect URLs**. Sans elle, le lien ouvre le site dans le navigateur, comme avant.
+
+Pour compiler l'APK sur son ordinateur (Android Studio ou SDK Android, Java 21) :
+
+```
+npm run build && npx cap sync android
+cd android && ./gradlew assembleDebug    # → android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+Icônes : `assets/icone.svg` (appli web) et `assets/icone-avant.svg` (Android). Après modification : `node scripts/icones.mjs` puis `npx @capacitor/assets generate --android`.
+
+L'APK est signé avec une clé d'essai publique (`android/app/appli-test.keystore`), suffisante pour l'installer à la main. Pour le Play Store, il faudra une vraie clé gardée dans les secrets du dépôt et un compte développeur Google (25 $ une fois). Une version iPhone native demande un Mac et un compte Apple (99 $ par an) : en attendant, l'appli web installable fait le travail.
+
 ## Limites connues de cette première version
 
 - Les tuiles `tile.openstreetmap.org` conviennent à un usage modéré ([politique d'usage](https://operations.osmfoundation.org/policies/tiles/)). Si l'appli décolle, passez à un fournisseur de tuiles (MapTiler, Stadia, etc.) via `VITE_TILE_URL`.
